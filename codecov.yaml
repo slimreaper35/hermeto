@@ -1,0 +1,7 @@
+codecov:
+  notify:
+    wait_for_ci: no
+
+comment:
+  layout: "condensed_files"
+  require_changes: true

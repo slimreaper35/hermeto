@@ -1,0 +1,6 @@
+comment:
+  layout: "header, diff, footer"
+
+codecov:
+  notify:
+    wait_for_ci: no

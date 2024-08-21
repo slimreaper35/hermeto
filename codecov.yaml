@@ -11,4 +11,4 @@ coverage:
 
 comment:
   layout: "condensed_files"
-  require_changes: "coverage_drop OR uncovered_patch" 
+  require_changes: "coverage_drop AND uncovered_patch" 

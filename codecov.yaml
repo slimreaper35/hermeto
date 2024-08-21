@@ -9,6 +9,11 @@ coverage:
         target: 90%
         threshold: 5%
 
+    patch:
+      default:
+        target: 90%
+        threshold: 5%
+
 comment:
   layout: "condensed_files"
   require_changes: "coverage_drop AND uncovered_patch" 

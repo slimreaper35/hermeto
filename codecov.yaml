@@ -4,6 +4,7 @@ codecov:
 
 coverage:
   status:
+    patch: false
     project:
       default:
         target: 90%

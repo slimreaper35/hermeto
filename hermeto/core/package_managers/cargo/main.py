@@ -8,6 +8,7 @@ from functools import cached_property
 from itertools import chain
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlparse, urlunparse
 
 import tomlkit
 from packageurl import PackageURL
@@ -41,27 +42,34 @@ class PackageWithCorruptLockfileRejected(PackageRejected):
 
 @dataclass(frozen=True)
 class CargoPackage:
-    """CargoPackage."""
+    """
+    Represents a package from Cargo.lock file.
+
+    The [[package]] table in the Cargo.lock file may contain many combinations of the following
+    fields (the name and version are mandatory). Even though some fields are not used, it is
+    convenient to simply unpack the parsed dictionary into this dataclass.
+    """
 
     name: str
-    version: Optional[str] = None
+    version: str
     source: Optional[str] = None  # [git|registry]+https://github.com/<org>/<package>#[|<sha>]
     checksum: Optional[str] = None
     dependencies: Optional[list] = None
-    vcs_url: Optional[str] = None
 
     @cached_property
     def purl(self) -> PackageURL:
-        """Return corrsponding purl."""
+        """Return corresponding package URL."""
         qualifiers = {}
-        if self.source is not None:
-            qualifiers["source"] = self.source
-        # The condition below holds for either the main package or any packages
-        # that originate from the filesystem (for example, workspace and patched source ones).
-        if self.vcs_url is not None and self.source is None:
-            qualifiers["vcs_url"] = self.vcs_url
+        # depends on https://github.com/hermetoproject/hermeto/issues/852
         if self.checksum is not None:
             qualifiers["checksum"] = self.checksum
+
+        if self.source is not None and self.source.startswith("git+"):
+            parsed_url = urlparse(self.source)
+            commit_id = parsed_url.fragment
+            base_url = urlunparse(parsed_url._replace(query="", fragment=""))
+            qualifiers["vcs_url"] = f"{base_url}@{commit_id}"
+
         return PackageURL(type="cargo", name=self.name, version=self.version, qualifiers=qualifiers)
 
     def to_component(self) -> Component:
@@ -233,12 +241,20 @@ def _generate_sbom_components(package_dir: RootedPath) -> chain[Component]:
     except NotAGitRepo:
         # Could become invalid when directories are swapped for nested package managers
         vcs_url = None
-    deps_components = (
-        CargoPackage(**p, vcs_url=vcs_url).to_component() for p in packages if is_a_dep(p)
+
+    deps_components = (CargoPackage(**p).to_component() for p in packages if is_a_dep(p))
+
+    main_purl = PackageURL(
+        type="cargo",
+        name=main_package_name,
+        version=main_package_version,
+        qualifiers={"vcs_url": vcs_url} if vcs_url is not None else None,
     )
-    main_component = CargoPackage(
-        name=main_package_name, version=main_package_version, vcs_url=vcs_url
-    ).to_component()
+    main_component = Component(
+        name=main_package_name,
+        version=main_package_version,
+        purl=main_purl.to_string(),
+    )
 
     return chain((main_component,), deps_components)
 

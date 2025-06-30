@@ -676,20 +676,15 @@ def _get_external_requirement_filepath(requirement: PipRequirement) -> Path:
             filename = Path(orig_url.path).name
             filepath = Path(urlparse.unquote(filename))
         else:
-            # e.g. external-pyarn/pyarn-external-sha256-deadbeef.tar.gz
-            filepath = Path(
-                f"external-{package}", f"{package}-external-{algorithm}-{digest}{file_ext}"
-            )
+            # e.g. pyarn-external-sha256-deadbeef.tar.gz
+            filepath = Path(f"{package}-external-{algorithm}-{digest}{file_ext}")
 
     elif requirement.kind == "vcs":
         git_info = extract_git_info(requirement.url)
         repo = git_info["repo"]
         ref = git_info["ref"]
-        # e.g. github.com/containerbuildsystem/pyarn/pyarn-external-gitcommit-badbeef.tar.gz
+        # e.g. pyarn-external-gitcommit-abcdef.tar.gz
         filepath = Path(
-            git_info["host"],
-            git_info["namespace"],  # namespaces can contain '/' but pathlib can handle that
-            repo,
             f"{repo}-external-gitcommit-{ref}.tar.gz",
         )
     else:

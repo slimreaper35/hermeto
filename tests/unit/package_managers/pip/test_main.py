@@ -268,7 +268,7 @@ class TestDownload:
         assert download_info == {
             "package": "eggs",
             "path": rooted_tmp_path.join_within_root(
-                "github.com", "spam", "eggs", f"eggs-external-gitcommit-{GIT_REF}.tar.gz"
+                f"eggs-external-gitcommit-{GIT_REF}.tar.gz"
             ).path,
             "url": "https://github.com/spam/eggs",
             "ref": GIT_REF,
@@ -331,9 +331,7 @@ class TestDownload:
 
         assert download_info == {
             "package": "foo",
-            "path": rooted_tmp_path.join_within_root(
-                "external-foo", "foo-external-sha256-abcdef.tar.gz"
-            ).path,
+            "path": rooted_tmp_path.join_within_root("foo-external-sha256-abcdef.tar.gz").path,
             "original_url": original_url,
             "url_with_hash": url_with_hash,
         }
@@ -1188,11 +1186,9 @@ def test_get_external_requirement_filepath(component_kind: str, url: str) -> Non
     )
     filepath = pip._get_external_requirement_filepath(requirement)
     if component_kind == "url":
-        assert filepath == Path("external-package", "package-external-sha256-noRealHash.tar.gz")
+        assert filepath == Path("package-external-sha256-noRealHash.tar.gz")
     elif component_kind == "vcs":
-        assert filepath == Path(
-            "github.com", "cachito", "mypkg", f"mypkg-external-gitcommit-{'f' * 40}.tar.gz"
-        )
+        assert filepath == Path(f"mypkg-external-gitcommit-{'f' * 40}.tar.gz")
     else:
         raise AssertionError()
 
@@ -1270,7 +1266,7 @@ def test_metadata_check_invalid_argument() -> None:
             dedent(
                 f"""\
                 foo==1.0.0
-                bar @ file://${{output_dir}}/deps/pip/github.com/org/bar/bar-external-gitcommit-{GIT_REF}.tar.gz
+                bar @ file://${{output_dir}}/deps/pip/bar-external-gitcommit-{GIT_REF}.tar.gz
                 """
             ),
         ),
@@ -1284,7 +1280,7 @@ def test_metadata_check_invalid_argument() -> None:
             dedent(
                 """\
                 foo==1.0.0
-                bar @ file://${output_dir}/deps/pip/external-bar/bar-external-sha256-fedcba.zip#cachito_hash=sha256:fedcba
+                bar @ file://${output_dir}/deps/pip/bar-external-sha256-fedcba.zip#cachito_hash=sha256:fedcba
                 """
             ),
         ),
@@ -1300,7 +1296,7 @@ def test_metadata_check_invalid_argument() -> None:
                 """\
                 --require-hashes
                 foo==1.0.0 --hash=sha256:abcdef
-                bar @ file://${output_dir}/deps/pip/external-bar/bar-external-sha256-fedcba.zip --hash=sha256:fedcba
+                bar @ file://${output_dir}/deps/pip/bar-external-sha256-fedcba.zip --hash=sha256:fedcba
                 """
             ),
         ),

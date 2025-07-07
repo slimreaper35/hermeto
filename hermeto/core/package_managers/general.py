@@ -14,13 +14,9 @@ from requests.auth import AuthBase
 
 from hermeto.core.config import get_config
 from hermeto.core.errors import FetchError
-from hermeto.core.http_requests import (
-    DEFAULT_RETRY_OPTIONS,
-    SAFE_REQUEST_METHODS,
-    get_requests_session,
-)
+from hermeto.core.http_requests import get_requests_session
 
-pkg_requests_session = get_requests_session(retry_options={"allowed_methods": SAFE_REQUEST_METHODS})
+pkg_requests_session = get_requests_session()
 
 log = logging.getLogger(__name__)
 
@@ -123,7 +119,7 @@ async def async_download_files(
 
     trace_config = aiohttp.TraceConfig()
     trace_config.on_request_start.append(on_request_start)
-    num_attempts: int = int(DEFAULT_RETRY_OPTIONS["total"])
+    num_attempts: int = 5
     retry_options = aiohttp_retry.JitterRetry(attempts=num_attempts, retry_all_server_errors=True)
     retry_client = aiohttp_retry.RetryClient(
         retry_options=retry_options,

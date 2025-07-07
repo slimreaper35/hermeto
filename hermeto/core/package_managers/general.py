@@ -9,16 +9,35 @@ from urllib.parse import urlparse
 
 import aiohttp
 import aiohttp_retry
-import requests
+from requests import RequestException, Session
+from requests.adapters import HTTPAdapter, Retry
 from requests.auth import AuthBase
 
 from hermeto.core.config import get_config
 from hermeto.core.errors import FetchError
-from hermeto.core.http_requests import get_requests_session
-
-pkg_requests_session = get_requests_session()
 
 log = logging.getLogger(__name__)
+
+
+def get_requests_session() -> Session:
+    """Create a requests session with various retry options."""
+    session = Session()
+    adapter = HTTPAdapter(
+        max_retries=Retry(
+            connect=5,
+            total=5,
+            read=5,
+            allowed_methods=["GET", "HEAD", "OPTIONS", "TRACE"],
+            status_forcelist=(500, 502, 503, 504),
+            backoff_factor=1.3,
+        )
+    )
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
+
+
+pkg_requests_session = get_requests_session()
 
 
 def download_binary_file(
@@ -44,7 +63,7 @@ def download_binary_file(
             url, stream=True, verify=not insecure, auth=auth, timeout=timeout
         )
         resp.raise_for_status()
-    except requests.RequestException as e:
+    except RequestException as e:
         raise FetchError(f"Could not download {url}: {e}")
 
     with open(download_path, "wb") as f:

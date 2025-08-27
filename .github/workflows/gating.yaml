@@ -24,7 +24,9 @@ jobs:
       run: |
         # We need to install git inside the container otherwise the checkout action will use Git
         # REST API and the .git directory won't be present which fails due to setuptools-scm
-        apt-get update && apt-get install --no-install-recommends --no-install-suggests -y git
+
+        apt-get update
+        apt-get install --no-install-recommends --no-install-suggests -y git
         pip install --upgrade pip nox
 
     - uses: actions/checkout@v5
@@ -57,7 +59,9 @@ jobs:
       run: |
         # We need to install git inside the container otherwise the checkout action will use Git
         # REST API and the .git directory won't be present which fails due to setuptools-scm
-        apt-get update && apt-get install --no-install-recommends --no-install-suggests -y git
+
+        apt-get update
+        apt-get install --no-install-recommends --no-install-suggests -y git
         pip install --upgrade pip nox
 
     - uses: actions/checkout@v5
@@ -106,12 +110,11 @@ jobs:
     # ubuntu 24.04 and respect the YAML tag (revert the commit that added this)
     runs-on: ubuntu-24.04
     steps:
-      - name: Install required packages
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install createrepo-c
-          python3 -m venv /var/tmp/venv
-          /var/tmp/venv/bin/pip3 install --upgrade pip nox
+          sudo apt-get install --no-install-recommends --no-install-suggests -y createrepo-c
+          pip install --upgrade pip nox
 
       - name: add checkout action...
         uses: actions/checkout@v5
@@ -180,4 +183,4 @@ jobs:
           HERMETO_TEST_LOCAL_DNF_SERVER: 'true'
         run: |
           git config --global --add safe.directory "*"
-          /var/tmp/venv/bin/nox -s integration-tests
+          nox -s integration-tests

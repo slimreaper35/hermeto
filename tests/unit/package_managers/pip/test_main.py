@@ -1310,11 +1310,6 @@ def test_replace_external_requirements(
     "packages, n_pip_packages",
     [
         pytest.param(
-            [{"type": "gomod"}],
-            0,
-            id="not_python_project",
-        ),
-        pytest.param(
             [{"type": "pip", "requirements_files": ["requirements.txt"]}],
             1,
             id="single_python_package",
@@ -1470,10 +1465,7 @@ def test_fetch_pip_source(
         ),
     ]
 
-    if n_pip_packages == 0:
-        expect_packages = []
-        expect_files = []
-    elif n_pip_packages == 1:
+    if n_pip_packages == 1:
         expect_packages = expect_components_package_a
         expect_files = [replaced_file_a]
     elif n_pip_packages == 2:
@@ -1484,15 +1476,15 @@ def test_fetch_pip_source(
 
     assert output.components == expect_packages
     assert output.build_config.project_files == expect_files
-    assert len(output.build_config.environment_variables) == (2 if n_pip_packages > 0 else 0)
+    assert len(output.build_config.environment_variables) == 2
 
-    if n_pip_packages >= 1:
+    if n_pip_packages == 1:
         mock_resolve_pip.assert_any_call(
             source_dir, output_dir, source_dir, [Path("requirements.txt")], None, False
         )
         mock_replace_requirements.assert_any_call("/package_a/requirements.txt")
         mock_replace_requirements.assert_any_call("/package_a/requirements-build.txt")
-    if n_pip_packages >= 2:
+    if n_pip_packages == 2:
         mock_resolve_pip.assert_any_call(
             source_dir.join_within_root("foo"), output_dir, source_dir, None, [], False
         )

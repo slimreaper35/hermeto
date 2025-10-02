@@ -62,14 +62,11 @@ def fetch_pip_source(request: Request) -> RequestOutput:
     """Resolve and fetch pip dependencies for the given request."""
     components: list[Component] = []
     project_files: list[ProjectFile] = []
-    environment_variables: list[EnvironmentVariable] = []
+    environment_variables: list[EnvironmentVariable] = [
+        EnvironmentVariable(name="PIP_FIND_LINKS", value="${output_dir}/deps/pip"),
+        EnvironmentVariable(name="PIP_NO_INDEX", value="true"),
+    ]
     packages_containing_rust_code = []
-
-    if request.pip_packages:
-        environment_variables = [
-            EnvironmentVariable(name="PIP_FIND_LINKS", value="${output_dir}/deps/pip"),
-            EnvironmentVariable(name="PIP_NO_INDEX", value="true"),
-        ]
 
     for package in request.pip_packages:
         path_within_root = request.source_dir.join_within_root(package.path)

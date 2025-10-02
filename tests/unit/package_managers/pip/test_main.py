@@ -1022,9 +1022,8 @@ def test_default_requirement_file_list(
 def test_resolve_pip_no_deps(mock_metadata: mock.Mock, rooted_tmp_path: RootedPath) -> None:
     mock_metadata.return_value = ("foo", "1.0")
     pkg_info = pip._resolve_pip(
-        rooted_tmp_path,
-        rooted_tmp_path.join_within_root("output"),
-        rooted_tmp_path.join_within_root("."),
+        package_path=rooted_tmp_path,
+        output_dir=rooted_tmp_path.join_within_root("output"),
     )
     expected = {
         "package": {"name": "foo", "version": "1.0", "type": "pip"},
@@ -1047,11 +1046,9 @@ def test_resolve_pip_invalid_req_file_path(
     requirement_files = [invalid_path]
     with pytest.raises(PackageRejected, match=expected_error):
         pip._resolve_pip(
-            rooted_tmp_path,
-            rooted_tmp_path.join_within_root("output"),
-            rooted_tmp_path.join_within_root("."),
-            requirement_files,
-            None,
+            package_path=rooted_tmp_path,
+            output_dir=rooted_tmp_path.join_within_root("output"),
+            requirement_files=requirement_files,
         )
 
 
@@ -1067,11 +1064,9 @@ def test_resolve_pip_invalid_bld_req_file_path(
     build_requirement_files = [invalid_path]
     with pytest.raises(PackageRejected, match=expected_error):
         pip._resolve_pip(
-            rooted_tmp_path,
-            rooted_tmp_path.join_within_root("output"),
-            rooted_tmp_path.join_within_root("."),
-            None,
-            build_requirement_files,
+            package_path=rooted_tmp_path,
+            output_dir=rooted_tmp_path.join_within_root("output"),
+            build_requirement_files=build_requirement_files,
         )
 
 
@@ -1126,17 +1121,15 @@ def test_resolve_pip(
     ]
     if custom_requirements:
         pkg_info = pip._resolve_pip(
-            rooted_tmp_path,
-            rooted_tmp_path.join_within_root("output"),
-            rooted_tmp_path.join_within_root("."),
+            package_path=rooted_tmp_path,
+            output_dir=rooted_tmp_path.join_within_root("output"),
             requirement_files=[relative_req_file_path],
             build_requirement_files=[relative_build_req_file_path],
         )
     else:
         pkg_info = pip._resolve_pip(
-            rooted_tmp_path,
-            rooted_tmp_path.join_within_root("output"),
-            rooted_tmp_path.join_within_root("."),
+            package_path=rooted_tmp_path,
+            output_dir=rooted_tmp_path.join_within_root("output"),
         )
 
     expected = {
@@ -1317,7 +1310,7 @@ def test_replace_external_requirements(
         pytest.param(
             [
                 {"type": "pip", "requirements_files": ["requirements.txt"]},
-                {"type": "pip", "path": "foo", "requirements_build_files": []},
+                {"type": "pip", "path": "foo"},
             ],
             2,
             id="multiple_python_packages",
@@ -1480,13 +1473,13 @@ def test_fetch_pip_source(
 
     if n_pip_packages == 1:
         mock_resolve_pip.assert_any_call(
-            source_dir, output_dir, source_dir, [Path("requirements.txt")], None, False
+            source_dir, output_dir, [Path("requirements.txt")], None, False
         )
         mock_replace_requirements.assert_any_call("/package_a/requirements.txt")
         mock_replace_requirements.assert_any_call("/package_a/requirements-build.txt")
     if n_pip_packages == 2:
         mock_resolve_pip.assert_any_call(
-            source_dir.join_within_root("foo"), output_dir, source_dir, None, [], False
+            source_dir.join_within_root("foo"), output_dir, None, None, False
         )
         mock_replace_requirements.assert_any_call("/package_b/requirements.txt")
 

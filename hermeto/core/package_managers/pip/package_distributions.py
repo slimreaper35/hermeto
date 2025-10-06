@@ -8,8 +8,10 @@ from typing import Any, Literal, Optional, cast
 
 import pypi_simple
 import requests
-from packaging.utils import canonicalize_version
+from packaging.tags import Tag
+from packaging.utils import canonicalize_version, parse_wheel_filename
 
+from hermeto.core.binary_filters import BinaryPackageFilter
 from hermeto.core.checksum import ChecksumInfo
 from hermeto.core.config import get_config
 from hermeto.core.errors import FetchError, PackageRejected
@@ -244,3 +246,56 @@ def process_package_distributions(
     processed_dpis.extend(wheels)
 
     return processed_dpis
+
+
+class WheelsFilter(BinaryPackageFilter):
+    """Filter PyPI wheels based on user constraints."""
+
+    def __init__(self, filters: PipBinaryFilters) -> None:
+        """Initialize the filter."""
+        self.packages = self._parse_filter_spec(filters.packages)
+        self.arch = self._parse_filter_spec(filters.arch)
+        self.os = self._parse_filter_spec(filters.os)
+        self.py_version = self._parse_filter_spec(filters.py_version)
+        self.py_impl = self._parse_filter_spec(filters.py_impl)
+
+    def __contains__(self, item: pypi_simple.DistributionPackage) -> bool:
+        """Check if the wheel matches the user constraints."""
+        _, _, _, tags = parse_wheel_filename(item.filename)
+        # usually `tags` contain only one item
+        return any(self.matches(tag) for tag in tags)
+
+    def matches(self, tag: Tag) -> bool:
+        """
+        Check if the user constraints match the platform compatibility tag from the wheel filename.
+
+        - multiple values in a field are combined with OR logic
+        - multiple fields are combined with AND logic
+        - if a field is not provided (None), it is treated as `:all:`
+
+        See https://packaging.pypa.io/en/stable/tags.html
+        """
+        valid_arch = (
+            self.arch is None
+            or tag.platform == "any"
+            or any(arch in tag.platform for arch in self.arch)
+        )
+        valid_os = (
+            self.os is None or tag.platform == "any" or any(os in tag.platform for os in self.os)
+        )
+        valid_py_version = self.py_version is None or any(
+            version in tag.interpreter for version in self.py_version
+        )
+        valid_py_impl = (
+            self.py_impl is None
+            or "py" in tag.interpreter
+            or any(impl in tag.interpreter for impl in self.py_impl)
+        )
+
+        return valid_arch and valid_os and valid_py_version and valid_py_impl
+
+    def filter(
+        self, wheels: Iterable[pypi_simple.DistributionPackage]
+    ) -> list[pypi_simple.DistributionPackage]:
+        """Filter a list of wheels based on user constraints."""
+        return [wheel for wheel in wheels if wheel in self]

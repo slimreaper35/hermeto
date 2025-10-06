@@ -629,7 +629,7 @@ class TestDownload:
         sdist_d_i = sdist_DPI.download_info | {
             "kind": "pypi",
             "requirement_file": str(req_file.file_path.subpath_from_root),
-            "missing_req_file_checksum": missing_req_file_checksum,
+            "missing_req_file_checksum": False,
             "package_type": "sdist",
             "index_url": expect_index_url,
         }
@@ -663,7 +663,7 @@ class TestDownload:
                     | {
                         "kind": "pypi",
                         "requirement_file": str(req_file.file_path.subpath_from_root),
-                        "missing_req_file_checksum": missing_req_file_checksum,
+                        "missing_req_file_checksum": False,
                         "package_type": "wheel",
                         "index_url": expect_index_url,
                     }

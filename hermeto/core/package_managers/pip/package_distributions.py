@@ -1,6 +1,7 @@
 """This module provides functionality to process package distributions from PyPI (sdist and wheel)."""
 
 import logging
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -8,8 +9,10 @@ from typing import Any, Literal, Optional, cast
 
 import pypi_simple
 import requests
-from packaging.utils import canonicalize_version
+from packaging.tags import Tag
+from packaging.utils import InvalidWheelFilename, canonicalize_version, parse_wheel_filename
 
+from hermeto.core.binary_filters import BinaryPackageFilter
 from hermeto.core.checksum import ChecksumInfo
 from hermeto.core.config import get_config
 from hermeto.core.errors import FetchError, PackageRejected
@@ -249,3 +252,96 @@ def process_package_distributions(
     processed_dpis.extend(wheels)
 
     return processed_dpis
+
+
+class WheelsFilter(BinaryPackageFilter):
+    """Filter PyPI wheels based on filter constraints."""
+
+    def __init__(self, filters: PipBinaryFilters) -> None:
+        """Initialize the filter."""
+        self.packages = self._parse_filter_spec(filters.packages)
+        self.arch = self._parse_filter_spec(filters.arch)
+        self.os = self._parse_filter_spec(filters.os)
+        self.py_version = filters.py_version
+        self.py_impl = self._parse_filter_spec(filters.py_impl)
+        self.abi = self._parse_filter_spec(filters.abi)
+        self.platform_regex = filters.platform
+
+    def __contains__(self, item: pypi_simple.DistributionPackage) -> bool:
+        """Check if the wheel matches the filter constraints."""
+        try:
+            _, _, _, tags = parse_wheel_filename(item.filename)
+        except InvalidWheelFilename:
+            log.warning("Skipping invalid wheel filename: %s", item.filename)
+            return False
+
+        # usually `tags` contain only one item
+        return any(self.matches(tag) for tag in tags)
+
+    def parse_py_version(self, interpreter: str) -> str:
+        """
+        Examples:
+        >>> parse_py_version("cp310")
+        "310"
+        >>> parse_py_version("py310")
+        "310"
+        >>> parse_py_version("py3")
+        "3"
+        """
+        match = re.fullmatch(r"[a-z]+(\d+)", interpreter)
+        if match is None:
+            raise ValueError(f"Invalid wheel interpreter: {interpreter}")
+
+        return match.group(1)
+
+    def _compatible_tag_platform(self, platform: str) -> bool:
+        if self.platform_regex is not None:
+            return re.search(self.platform_regex, platform) is not None
+
+        compatible_arch = (
+            self.arch is None or platform == "any" or any(arch in platform for arch in self.arch)
+        )
+        compatible_os = (
+            self.os is None or platform == "any" or any(os in platform for os in self.os)
+        )
+
+        return compatible_arch and compatible_os
+
+    def _compatible_tag_abi(self, abi: str) -> bool:
+        return self.abi is None or any(a in abi for a in self.abi)
+
+    def _compatible_tag_interpreter(self, interpreter: str) -> bool:
+        compatible_py_impl = (
+            self.py_impl is None
+            or "py" in interpreter
+            or any(impl in interpreter for impl in self.py_impl)
+        )
+
+        wheel_py_version = self.parse_py_version(interpreter)
+        compatible_py_version = self.py_version is None or (
+            int(wheel_py_version) <= self.py_version
+        )
+
+        return compatible_py_impl and compatible_py_version
+
+    def matches(self, tag: Tag) -> bool:
+        """
+        Verify that the filter constraints match a wheel tag.
+
+        - multiple values in a field are combined with OR logic
+        - multiple fields are combined with AND logic
+        - if a field is not provided (None), it is treated as `:all:` and treated as a match
+
+        See https://packaging.pypa.io/en/stable/tags.html
+        """
+        return (
+            self._compatible_tag_interpreter(tag.interpreter)
+            and self._compatible_tag_abi(tag.abi)
+            and self._compatible_tag_platform(tag.platform)
+        )
+
+    def filter(
+        self, wheels: Iterable[pypi_simple.DistributionPackage]
+    ) -> list[pypi_simple.DistributionPackage]:
+        """Filter a list of wheels based on filter constraints."""
+        return [wheel for wheel in wheels if wheel in self]

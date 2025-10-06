@@ -282,7 +282,7 @@ def _process_req(
             log.warning("Download '%s' was removed from the output directory", path.name)
 
     if dpi:
-        if dpi.req_file_checksums:
+        if req.hashes:
             download_info["missing_req_file_checksum"] = False
         if dpi.checksums_to_match:
             _checksum_must_match_or_path_unlink(dpi.path, dpi.checksums_to_match)

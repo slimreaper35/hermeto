@@ -3,11 +3,13 @@ from unittest import mock
 
 import pypi_simple
 import pytest
+from packaging.tags import Tag
 
 from hermeto.core.checksum import ChecksumInfo
 from hermeto.core.errors import FetchError, PackageRejected
 from hermeto.core.models.input import PipBinaryFilters
 from hermeto.core.package_managers.pip.package_distributions import (
+    WheelsFilter,
     _sdist_preference,
     process_package_distributions,
 )
@@ -338,3 +340,177 @@ def test_process_package_distributions_noncanonical_version(
     assert artifacts[0].package_type == "sdist"
     assert artifacts[0].version == requested_version
     assert all(w.version == requested_version for w in artifacts[1:])
+
+
+class TestWheelsFilter:
+    """Don't let the sound of your own wheels drive you crazy."""
+
+    def test_init_with_default_filters(self) -> None:
+        filters = PipBinaryFilters()
+        wheels_filter = WheelsFilter(filters)
+
+        assert wheels_filter.packages is None
+        assert wheels_filter.arch == {"x86_64"}
+        assert wheels_filter.os == {"linux"}
+        assert wheels_filter.py_version is None
+        assert wheels_filter.py_impl == {"cp"}
+
+    def test_init_with_custom_filters(self) -> None:
+        filters = PipBinaryFilters(
+            packages="numpy,pandas",
+            arch="x86_64,aarch64",
+            os="linux,macos",
+            py_version="38,39",
+            py_impl="cp,pp",
+        )
+        wheels_filter = WheelsFilter(filters)
+
+        assert wheels_filter.packages == {"numpy", "pandas"}
+        assert wheels_filter.arch == {"x86_64", "aarch64"}
+        assert wheels_filter.os == {"linux", "macos"}
+        assert wheels_filter.py_version == {"38", "39"}
+        assert wheels_filter.py_impl == {"cp", "pp"}
+
+    def test_init_with_all_keyword(self) -> None:
+        filters = PipBinaryFilters(
+            packages=":all:",
+            arch=":all:",
+            os=":all:",
+            py_version=":all:",
+            py_impl=":all:",
+        )
+        wheels_filter = WheelsFilter(filters)
+
+        assert wheels_filter.packages is None
+        assert wheels_filter.arch is None
+        assert wheels_filter.os is None
+        assert wheels_filter.py_version is None
+        assert wheels_filter.py_impl is None
+
+    def test_matches_py_implementation_with_abi3(self) -> None:
+        filters = PipBinaryFilters(py_version="310")
+        wheels_filter = WheelsFilter(filters)
+
+        tag = Tag("py3", "abi3", "linux_x86_64")
+        assert wheels_filter.matches(tag) is True
+
+    def test_matches_py_implementation_with_none_abi(self) -> None:
+        filters = PipBinaryFilters(py_version="310")
+        wheels_filter = WheelsFilter(filters)
+
+        tag = Tag("py3", "none", "linux_x86_64")
+        assert wheels_filter.matches(tag) is True
+
+    def test_matches_cp_implementation_exact_version(self) -> None:
+        filters = PipBinaryFilters(py_version="310")
+        wheels_filter = WheelsFilter(filters)
+
+        tag = Tag("cp310", "cp310", "linux_x86_64")
+        assert wheels_filter.matches(tag) is True
+
+    def test_matches_cp_implementation_wrong_version(self) -> None:
+        filters = PipBinaryFilters(py_version="39")
+        wheels_filter = WheelsFilter(filters)
+
+        tag = Tag("cp310", "cp310", "linux_x86_64")
+        assert wheels_filter.matches(tag) is False
+
+    def test_filter_with_whitespace_in_constraints(self) -> None:
+        filters = PipBinaryFilters(
+            arch=" x86_64 , aarch64 ",
+            os=" linux , macos ",
+            py_version=" 38 , 39 ",
+            py_impl=" cp , pp ",
+        )
+        wheels_filter = WheelsFilter(filters)
+
+        assert wheels_filter.arch == {"x86_64", "aarch64"}
+        assert wheels_filter.os == {"linux", "macos"}
+        assert wheels_filter.py_version == {"38", "39"}
+        assert wheels_filter.py_impl == {"cp", "pp"}
+
+    def test_filter_with_duplicate_constraint_values(self) -> None:
+        filters = PipBinaryFilters(
+            arch="x86_64,x86_64,aarch64",
+            os="linux,linux,macos",
+            py_version="38,38,39",
+            py_impl="cp,cp,pp",
+        )
+        wheels_filter = WheelsFilter(filters)
+
+        assert wheels_filter.arch == {"x86_64", "aarch64"}
+        assert wheels_filter.os == {"linux", "macos"}
+        assert wheels_filter.py_version == {"38", "39"}
+        assert wheels_filter.py_impl == {"cp", "pp"}
+
+    def test_filter_with_no_matching_wheels(self) -> None:
+        filters = PipBinaryFilters(arch="aarch64", os="macos")
+        wheels_filter = WheelsFilter(filters)
+
+        wheels = [
+            mock_pypi_simple_distribution_package(
+                "package-1.0.0-cp39-cp39-linux_x86_64.whl", "1.0.0"
+            ),
+            mock_pypi_simple_distribution_package(
+                "package-1.0.0-cp39-cp39-linux_aarch64.whl", "1.0.0"
+            ),
+        ]
+
+        result = wheels_filter.filter(wheels)
+        assert result == []
+
+    def test_filter_with_matching_wheels(self) -> None:
+        filters = PipBinaryFilters(
+            arch="x86_64,amd64",
+            os="linux,macos,win",
+            py_version="39,310",
+            py_impl="cp",
+        )
+        wheels_filter = WheelsFilter(filters)
+
+        wheels = [
+            mock_pypi_simple_distribution_package(
+                "package-1.0.0-cp39-cp39-linux_x86_64.whl",
+                "1.0.0",
+            ),
+            mock_pypi_simple_distribution_package(
+                "package-1.0.0-cp39-cp39-macos_10_9_x86_64.whl",
+                "1.0.0",
+            ),
+            mock_pypi_simple_distribution_package(
+                "package-1.0.0-cp39-cp39-win_amd64.whl",
+                "1.0.0",
+            ),
+            # wrong arch
+            mock_pypi_simple_distribution_package(
+                "package-1.0.0-cp39-cp39-linux_aarch64.whl",
+                "1.0.0",
+            ),
+            # wrong Python version
+            mock_pypi_simple_distribution_package(
+                "package-1.0.0-cp38-cp38-linux_x86_64.whl",
+                "1.0.0",
+            ),
+        ]
+
+        result = wheels_filter.filter(wheels)
+        assert len(result) == 3
+
+        filenames = [wheel.filename for wheel in result]
+        assert "package-1.0.0-cp39-cp39-linux_x86_64.whl" in filenames
+        assert "package-1.0.0-cp39-cp39-macos_10_9_x86_64.whl" in filenames
+        assert "package-1.0.0-cp39-cp39-win_amd64.whl" in filenames
+
+    def test_filter_with_invalid_wheel_filename(self) -> None:
+        filters = PipBinaryFilters()
+        wheels_filter = WheelsFilter(filters)
+
+        wheels = [
+            mock_pypi_simple_distribution_package(
+                "foo.whl",
+                "1.0.0",
+            )
+        ]
+
+        result = wheels_filter.filter(wheels)
+        assert result == []

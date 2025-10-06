@@ -1,6 +1,7 @@
 """This module provides functionality to process package distributions from PyPI (sdist and wheel)."""
 
 import logging
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -8,8 +9,10 @@ from typing import Any, Literal, Optional, cast
 
 import pypi_simple
 import requests
-from packaging.utils import canonicalize_version
+from packaging.tags import Tag
+from packaging.utils import InvalidWheelFilename, canonicalize_version, parse_wheel_filename
 
+from hermeto.core.binary_filters import BinaryPackageFilter
 from hermeto.core.checksum import ChecksumInfo
 from hermeto.core.config import get_config
 from hermeto.core.errors import FetchError, PackageRejected
@@ -244,3 +247,95 @@ def process_package_distributions(
     processed_dpis.extend(wheels)
 
     return processed_dpis
+
+
+class WheelsFilter(BinaryPackageFilter):
+    """Filter PyPI wheels based on filter constraints."""
+
+    def __init__(self, filters: PipBinaryFilters) -> None:
+        """Initialize the filter."""
+        self.packages = self._parse_filter_spec(filters.packages)
+        self.arch = self._parse_filter_spec(filters.arch)
+        self.os = self._parse_filter_spec(filters.os)
+        self.py_version = self._parse_filter_spec(filters.py_version)
+        self.py_impl = self._parse_filter_spec(filters.py_impl)
+
+    def __contains__(self, item: pypi_simple.DistributionPackage) -> bool:
+        """Check if the wheel matches the filter constraints."""
+        try:
+            _, _, _, tags = parse_wheel_filename(item.filename)
+        except InvalidWheelFilename:
+            log.warning("Skipping invalid wheel filename: %s", item.filename)
+            return False
+
+        # usually `tags` contain only one item
+        return any(self.matches(tag) for tag in tags)
+
+    def get_max_py_version(self) -> str:
+        """Get the maximum python version from the filter constraints."""
+        return max(self.py_version) if self.py_version is not None else ""
+
+    def parse_py_impl_and_py_version(self, interpreter: str) -> tuple[str, str]:
+        """
+        Examples:
+        >>> parse_py_impl_and_py_version("cp310")
+        ("cp", "310")
+        >>> parse_py_impl_and_py_version("py310")
+        ("py", "310")
+        >>> parse_py_impl_and_py_version("py3")
+        ("py", "3")
+        """
+        match = re.fullmatch(r"([a-z]+)(\d+)", interpreter)
+        if match is None:
+            return "", ""
+
+        return match.group(1), match.group(2)
+
+    def matches(self, tag: Tag) -> bool:
+        """
+        Check if the filter constraints match the platform compatibility tag from the wheel filename.
+
+        - multiple values in a field are combined with OR logic
+        - multiple fields are combined with AND logic
+        - if a field is not provided (None), it is treated as `:all:` and treated as a match
+
+        See https://packaging.pypa.io/en/stable/tags.html
+        """
+        valid_arch = (
+            self.arch is None
+            or tag.platform == "any"
+            or any(arch in tag.platform for arch in self.arch)
+        )
+        # check operating system compatibility
+        valid_os = (
+            self.os is None or tag.platform == "any" or any(os in tag.platform for os in self.os)
+        )
+        # check Python implementation compatibility
+        valid_py_impl = (
+            self.py_impl is None
+            or "py" in tag.interpreter
+            or any(impl in tag.interpreter for impl in self.py_impl)
+        )
+
+        # check Python version compatibility with special handling for generic vs specific tags
+        max_py_version = self.get_max_py_version()
+        wheel_py_impl, wheel_py_version = self.parse_py_impl_and_py_version(tag.interpreter)
+
+        if wheel_py_impl == "py":
+            # generic "py" tags are compatible if version <= max_version and abi allows it
+            valid_py_version = self.py_version is None or (
+                wheel_py_version <= max_py_version and tag.abi in ("abi3", "none")
+            )
+        else:
+            # specific implementation tags require exact version match
+            valid_py_version = self.py_version is None or any(
+                version in tag.interpreter for version in self.py_version
+            )
+
+        return valid_arch and valid_os and valid_py_impl and valid_py_version
+
+    def filter(
+        self, wheels: Iterable[pypi_simple.DistributionPackage]
+    ) -> list[pypi_simple.DistributionPackage]:
+        """Filter a list of wheels based on filter constraints."""
+        return [wheel for wheel in wheels if wheel in self]

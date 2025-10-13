@@ -2,9 +2,10 @@ import json
 import logging
 import subprocess
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
 from hermeto.core.errors import PackageManagerError, PackageRejected
+from hermeto.core.models.input import BundlerBinaryFilters
 from hermeto.core.package_managers.bundler.gem_models import (
     GemDependency,
     GemPlatformSpecificDependency,
@@ -26,7 +27,9 @@ BundlerDependency = Union[
 ParseResult = list[BundlerDependency]
 
 
-def parse_lockfile(package_dir: RootedPath, allow_binary: bool = False) -> ParseResult:
+def parse_lockfile(
+    package_dir: RootedPath, binary_filters: Optional[BundlerBinaryFilters] = None
+) -> ParseResult:
     """Parse a Gemfile.lock file and return a list of dependencies."""
     lockfile_path = package_dir.join_within_root(GEMFILE_LOCK)
     gemfile_path = package_dir.join_within_root(GEMFILE)
@@ -59,7 +62,7 @@ def parse_lockfile(package_dir: RootedPath, allow_binary: bool = False) -> Parse
             else:
                 full_name = "-".join([dep["name"], dep["version"], dep["platform"]])
                 log.info("Found a binary dependency %s", full_name)
-                if allow_binary:
+                if binary_filters is not None:
                     log.warning(
                         "Will download binary dependency %s because 'allow_binary' is set to True",
                         full_name,

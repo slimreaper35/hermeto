@@ -23,6 +23,21 @@ from hermeto.core.utils import first_for
 log = logging.getLogger(__name__)
 
 
+Annotator = Literal["organization", "individual", "component", "service"]
+
+
+class Annotation(pydantic.BaseModel):
+    """
+    A comment, note, explanation, or similar textual content
+    which provides additional context to the object(s) being annotated.
+    """
+
+    subjects: list[str]
+    annotator: dict[Annotator, dict[str, str]]
+    timestamp: str
+    text: str
+
+
 class ExternalReference(pydantic.BaseModel):
     """An ExternalReference inside an SBOM component."""
 

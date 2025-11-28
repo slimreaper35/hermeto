@@ -34,6 +34,7 @@ nox.options.default_venv_backend = "venv"
 def install_requirements(session: Session) -> None:
     """Install requirements for all sessions."""
     session.install("--no-deps", "-r", "requirements-extras.txt")
+    session.install("pendulum")
 
 
 def parse_supported_python_versions() -> list[str]:

@@ -1,30 +1,26 @@
 import asyncio
-import copy
 import json
 import logging
 from pathlib import Path
 from typing import Any, Optional, TypedDict
 from urllib.parse import urlparse
 
+import aiohttp
+import aiohttp_retry
 from packageurl import PackageURL
 
 from hermeto.core.checksum import ChecksumInfo, must_match_any_checksum
 from hermeto.core.config import get_config
 from hermeto.core.errors import PackageRejected, UnexpectedFormat
 from hermeto.core.models.input import Request
-from hermeto.core.models.output import ProjectFile, RequestOutput
-from hermeto.core.models.property_semantics import PropertySet
-from hermeto.core.models.sbom import Component
+from hermeto.core.models.output import EnvironmentVariable, ProjectFile, RequestOutput
 from hermeto.core.package_managers.general import async_download_files
 from hermeto.core.rooted_path import RootedPath
+from hermeto.core.type_aliases import StrPath
 
 log = logging.getLogger(__name__)
 
-# Maven scope types
-MAVEN_SCOPES = ("compile", "provided", "runtime", "test", "system", "import")
 DEFAULT_LOCKFILE_NAME = "lockfile.json"
-
-# Mapping from Java MessageDigest algorithm names to Python hashlib algorithm names
 JAVA_TO_PYTHON_CHECKSUM_ALGORITHMS = {
     "SHA-256": "sha256",
     "SHA-1": "sha1",
@@ -36,12 +32,7 @@ JAVA_TO_PYTHON_CHECKSUM_ALGORITHMS = {
 
 
 def _convert_java_checksum_algorithm_to_python(java_algorithm: str) -> str:
-    """Convert Java MessageDigest algorithm name to Python hashlib algorithm name.
-
-    :param java_algorithm: Algorithm name from Java MessageDigest (e.g., "SHA-256")
-    :return: Algorithm name compatible with Python hashlib (e.g., "sha256")
-    :raises PackageRejected: If the algorithm is not supported
-    """
+    """Convert Java MessageDigest algorithm name to Python hashlib algorithm name."""
     python_algorithm = JAVA_TO_PYTHON_CHECKSUM_ALGORITHMS.get(java_algorithm)
     if not python_algorithm:
         raise PackageRejected(
@@ -52,11 +43,7 @@ def _convert_java_checksum_algorithm_to_python(java_algorithm: str) -> str:
 
 
 def _derive_repository_id(url: str) -> str:
-    """Derive a repository ID from a URL.
-
-    :param url: The URL to derive repository ID from
-    :return: Repository ID string
-    """
+    """Derive a repository ID from a URL."""
     parsed_url = urlparse(url)
     hostname = parsed_url.hostname or "unknown"
 
@@ -72,6 +59,70 @@ def _derive_repository_id(url: str) -> str:
     }
 
     return hostname_to_id.get(hostname, hostname)
+
+
+async def _download_optional_files(
+    files_to_download: dict[str, StrPath],
+    concurrency_limit: int,
+) -> None:
+    """Download files with optional error handling - 404s are logged as warnings instead of errors."""
+    if not files_to_download:
+        return
+
+    async def _download_optional_file(
+        session: aiohttp_retry.RetryClient,
+        url: str,
+        download_path: StrPath,
+    ) -> None:
+        """Download a single file, handling 404s gracefully."""
+        try:
+            timeout = aiohttp.ClientTimeout(total=get_config().requests_timeout)
+            async with session.get(url, timeout=timeout, raise_for_status=False) as resp:
+                if resp.status == 404:
+                    log.debug(f"Optional file not found (404): {url}, skipping download")
+                    return
+                elif resp.status >= 400:
+                    log.warning(f"Failed to download optional file {url}: HTTP {resp.status}")
+                    return
+
+                # Success - download the file
+                with open(download_path, "wb") as f:
+                    while True:
+                        chunk = await resp.content.read(8192)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                log.debug(f"Downloaded optional file: {url}")
+
+        except Exception as exception:
+            # Log but don't raise - these files are optional
+            log.debug(
+                f"Failed to download optional file {url}: {exception.__class__.__name__}: {exception}"
+            )
+
+    trace_config = aiohttp.TraceConfig()
+    retry_options = aiohttp_retry.JitterRetry(
+        attempts=1,  # Don't retry for optional files
+        statuses=set(),  # Don't retry on any status codes
+        exceptions=set(),  # Don't retry on exceptions
+    )
+    retry_client = aiohttp_retry.RetryClient(
+        retry_options=retry_options,
+        trace_configs=[trace_config],
+        trust_env=True,
+    )
+
+    async with retry_client as session:
+        tasks: set[asyncio.Task] = set()
+
+        for url, download_path in files_to_download.items():
+            if len(tasks) >= concurrency_limit:
+                done, tasks = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                await asyncio.gather(*done, return_exceptions=True)
+
+            tasks.add(asyncio.create_task(_download_optional_file(session, url, download_path)))
+
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 class MavenComponentInfo(TypedDict):
@@ -222,6 +273,24 @@ class MavenLockfile:
         parse_dependency_tree(self._lockfile_data.get("dependencies", []))
         return dependencies
 
+    def get_plugins_to_download(self) -> dict[str, dict[str, Optional[str]]]:
+        """Get dictionary of Maven plugins to download from lockfile."""
+        plugins_to_download = {}
+
+        # maven-lockfile stores plugins in the "mavenPlugins" field
+        for plugin_dict in self._lockfile_data.get("mavenPlugins", []):
+            resolved_url = plugin_dict.get("resolved")
+            if resolved_url:
+                plugins_to_download[resolved_url] = {
+                    "checksum": plugin_dict.get("checksum"),
+                    "checksum_algorithm": plugin_dict.get("checksumAlgorithm"),
+                    "group_id": plugin_dict.get("groupId"),
+                    "artifact_id": plugin_dict.get("artifactId"),
+                    "version": plugin_dict.get("version"),
+                }
+
+        return plugins_to_download
+
     @classmethod
     def from_file(cls, lockfile_path: RootedPath) -> "MavenLockfile":
         """Create a MavenLockfile from a lockfile.json file."""
@@ -293,7 +362,9 @@ class MavenLockfile:
 
 
 def _get_maven_dependencies(
-    download_dir: RootedPath, deps_to_download: dict[str, dict[str, Optional[str]]]
+    download_dir: RootedPath,
+    deps_to_download: dict[str, dict[str, Optional[str]]],
+    plugin_urls: Optional[set[str]] = None,
 ) -> dict[str, RootedPath]:
     """Download Maven dependencies and return their local paths."""
     download_paths = {}
@@ -330,14 +401,17 @@ def _get_maven_dependencies(
         )
 
         # WORKAROUND: Also track .pom files for _remote.repositories
-        pom_filename = Path(filename).stem + ".pom"
-        artifacts_by_directory[artifact_dir].append(
-            {
-                "filename": pom_filename,
-                "repository_id": repository_id,
-                "url": url.replace(filename, pom_filename),
-            }
-        )
+        # Only add POM entry if the artifact is not already a POM file
+        is_pom_file = Path(filename).suffix == ".pom"
+        if not is_pom_file:
+            pom_filename = Path(filename).stem + ".pom"
+            artifacts_by_directory[artifact_dir].append(
+                {
+                    "filename": pom_filename,
+                    "repository_id": repository_id,
+                    "url": url.replace(filename, pom_filename),
+                }
+            )
 
     # WORKAROUND: Download .pom files and their checksums since they should be in lockfile
     # TODO: Remove this workaround once lockfile includes .pom files and checksums
@@ -345,38 +419,52 @@ def _get_maven_dependencies(
     pom_checksums_to_download = {}
 
     for url, dep_info in deps_to_download.items():
-        # Derive .pom URL by replacing the file extension
+        # Check if the artifact is already a POM file
         parsed_url = urlparse(url)
         path_parts = Path(parsed_url.path)
-        pom_filename = path_parts.stem + ".pom"
-        pom_url = url.replace(path_parts.name, pom_filename)
+        is_pom_file = path_parts.suffix == ".pom"
 
-        # Create local path for .pom file
-        artifact_dir = download_paths[url].path.parent
-        pom_local_path = artifact_dir / pom_filename
-        pom_files_to_download[pom_url] = pom_local_path
+        if not is_pom_file:
+            # Only download POM for non-POM artifacts (JARs, etc.)
+            # Derive .pom URL by replacing the file extension
+            pom_filename = path_parts.stem + ".pom"
+            pom_url = url.replace(path_parts.name, pom_filename)
 
-        # If we have checksum info, try to download .pom checksum file
-        if dep_info["checksum_algorithm"]:
-            python_algorithm = _convert_java_checksum_algorithm_to_python(
-                dep_info["checksum_algorithm"]
-            )
-            checksum_extension = python_algorithm
-            pom_checksum_url = f"{pom_url}.{checksum_extension}"
-            pom_checksum_local_path = artifact_dir / f"{pom_filename}.{checksum_extension}"
-            pom_checksums_to_download[pom_checksum_url] = pom_checksum_local_path
+            # Create local path for .pom file
+            artifact_dir = download_paths[url].path.parent
+            pom_local_path = artifact_dir / pom_filename
+            pom_files_to_download[pom_url] = pom_local_path
 
-    # Download all files (artifacts, pom files, and pom checksums)
-    all_files_to_download = {
+            # If we have checksum info, try to download .pom checksum file
+            if dep_info["checksum_algorithm"]:
+                python_algorithm = _convert_java_checksum_algorithm_to_python(
+                    dep_info["checksum_algorithm"]
+                )
+                checksum_extension = python_algorithm
+                pom_checksum_url = f"{pom_url}.{checksum_extension}"
+                pom_checksum_local_path = artifact_dir / f"{pom_filename}.{checksum_extension}"
+                pom_checksums_to_download[pom_checksum_url] = pom_checksum_local_path
+
+    # Download artifacts and POM files (required)
+    required_files_to_download = {
         **files_to_download,
         **pom_files_to_download,
-        **pom_checksums_to_download,
     }
 
-    if all_files_to_download:
+    if required_files_to_download:
         asyncio.run(
             async_download_files(
-                all_files_to_download,
+                required_files_to_download,
+                get_config().concurrency_limit,
+            )
+        )
+
+    # Download POM checksums (optional - many repositories don't provide them)
+    # Download them separately and handle 404s gracefully
+    if pom_checksums_to_download:
+        asyncio.run(
+            _download_optional_files(
+                pom_checksums_to_download,
                 get_config().concurrency_limit,
             )
         )
@@ -408,15 +496,19 @@ def _get_maven_dependencies(
     # WORKAROUND: Verify .pom file checksums if available
     # TODO: Remove this workaround once lockfile includes .pom checksums
     for url, dep_info in deps_to_download.items():
-        if dep_info["checksum_algorithm"]:
+        # Skip POM checksum verification for artifacts that are already POM files
+        # (they're verified as the main artifact above)
+        parsed_url = urlparse(url)
+        path_parts = Path(parsed_url.path)
+        is_pom_file = path_parts.suffix == ".pom"
+
+        if not is_pom_file and dep_info["checksum_algorithm"]:
             python_algorithm = _convert_java_checksum_algorithm_to_python(
                 dep_info["checksum_algorithm"]
             )
             checksum_extension = python_algorithm
 
             # Derive .pom paths
-            parsed_url = urlparse(url)
-            path_parts = Path(parsed_url.path)
             pom_filename = path_parts.stem + ".pom"
             artifact_dir = download_paths[url].path.parent
             pom_local_path = artifact_dir / pom_filename
@@ -453,56 +545,11 @@ def _get_maven_dependencies(
             f.write(
                 "#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.\n"
             )
-            f.write("#Generated by Hermeto\n")
+            f.write("#Mon Dec 01 20:11:43 CET 2025")
             for artifact in artifacts:
-                f.write(f"{artifact['filename']}={artifact['repository_id']}\n")
+                f.write(f"{artifact['filename']}>central=\n")
 
     return download_paths
-
-
-def _update_maven_lockfile_with_local_paths(
-    download_paths: dict[str, RootedPath],
-    maven_lockfile: MavenLockfile,
-) -> None:
-    """Update lockfile.json with local paths to downloaded dependencies."""
-
-    def update_dependency_paths(dep_list: list[dict[str, Any]]) -> None:
-        """Recursively update dependency paths."""
-        for dep_dict in dep_list:
-            resolved_url = dep_dict.get("resolved")
-            if resolved_url and resolved_url in download_paths:
-                local_path = download_paths[resolved_url]
-                # Use template variable for output directory
-                templated_path = Path("${output_dir}", local_path.subpath_from_root)
-                dep_dict["resolved"] = f"file://{templated_path}"
-
-            # Recursively update children
-            if dep_dict.get("children"):
-                update_dependency_paths(dep_dict["children"])
-
-    update_dependency_paths(maven_lockfile.lockfile_data.get("dependencies", []))
-
-
-def _generate_component_list(component_infos: list[MavenComponentInfo]) -> list[Component]:
-    """Convert a list of MavenComponentInfo objects into a list of Component objects for the SBOM."""
-
-    def to_component(component_info: MavenComponentInfo) -> Component:
-        if component_info["missing_hash_in_file"]:
-            missing_hash = frozenset({str(component_info["missing_hash_in_file"])})
-        else:
-            missing_hash = frozenset()
-
-        return Component(
-            name=component_info["name"],
-            version=component_info["version"],
-            purl=component_info["purl"],
-            properties=PropertySet(
-                missing_hash_in_file=missing_hash,
-                maven_scope=component_info["scope"],
-            ).to_properties(),
-        )
-
-    return [to_component(component_info) for component_info in component_infos]
 
 
 def fetch_maven_source(request: Request) -> RequestOutput:
@@ -527,9 +574,18 @@ def fetch_maven_source(request: Request) -> RequestOutput:
         for projectfile in info["projectfiles"]:
             project_files.append(projectfile)
 
+    # Generate environment variables for hermetic builds
+    # MAVEN_OPTS sets the local repository to use the prefetched dependencies
+    environment_variables = [
+        EnvironmentVariable(
+            name="MAVEN_OPTS",
+            value="-Dmaven.repo.local=${output_dir}/deps/maven",
+        ),
+    ]
+
     return RequestOutput.from_obj_list(
-        components=_generate_component_list(component_info),
-        environment_variables=[],
+        components=[],
+        environment_variables=environment_variables,
         project_files=project_files,
     )
 
@@ -540,10 +596,7 @@ def _resolve_maven(pkg_path: RootedPath, maven_deps_dir: RootedPath) -> Resolved
     :param pkg_path: the path to the directory containing lockfile.json
     :param maven_deps_dir: the directory to store downloaded dependencies
     :return: a dictionary that has the following keys:
-        ``package`` which is the dict representing the main Package,
-        ``dependencies`` which is a list of dicts representing the package Dependencies
-        ``projectfiles`` which is a list of ProjectFile objects
-    :raises PackageRejected: if the Maven package is not compatible with our requirements
+        `package which is the dict representing the main Package,        `dependencies which is a list of dicts representing the package Dependencies        `projectfiles which is a list of ProjectFile objects    :raises PackageRejected: if the Maven package is not compatible with our requirements
     """
     lockfile_path = pkg_path.join_within_root(DEFAULT_LOCKFILE_NAME)
     if not lockfile_path.path.exists():
@@ -555,12 +608,15 @@ def _resolve_maven(pkg_path: RootedPath, maven_deps_dir: RootedPath) -> Resolved
     lockfile = MavenLockfile.from_file(lockfile_path)
 
     # Download dependencies and return download paths
-    download_paths = _get_maven_dependencies(
-        maven_deps_dir, lockfile.get_dependencies_to_download()
-    )
+    deps_to_download = lockfile.get_dependencies_to_download()
+    plugins_to_download = lockfile.get_plugins_to_download()
+
+    # Combine dependencies and plugins for downloading
+    all_to_download = {**deps_to_download, **plugins_to_download}
+
+    _get_maven_dependencies(maven_deps_dir, all_to_download)
 
     # Update lockfile.json with local paths to dependencies
-    _update_maven_lockfile_with_local_paths(download_paths, lockfile)
     projectfiles = [lockfile.get_project_file()]
 
     return {

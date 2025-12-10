@@ -130,11 +130,9 @@ class Metadata(pydantic.BaseModel):
     tools: list[Tool] = [Tool(vendor="red hat", name=f"{APP_NAME}")]
 
 
-def spdx_now() -> str:
-    """Return a time stamp in SPDX-compliant format.
-
-    See https://spdx.github.io/spdx-spec/v2.3/search.html?q=date
-    for details.
+def timestamp_now() -> str:
+    """
+    Return a timestamp representing current time.
     """
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -237,7 +235,7 @@ class Sbom(pydantic.BaseModel):
             base_spdx_annotation = partial(
                 SPDXPackageAnnotation,
                 annotator=f"Tool: {APP_NAME}:jsonencoded",
-                annotationDate=spdx_now(),
+                annotationDate=timestamp_now(),
                 annotationType="OTHER",
             )
 
@@ -291,7 +289,7 @@ class Sbom(pydantic.BaseModel):
             documentNamespace=doc_namespace,
             creationInfo=SPDXCreationInfo(
                 creators=sum([creator(tool) for tool in self.metadata.tools], []),
-                created=spdx_now(),
+                created=timestamp_now(),
             ),
         )
 

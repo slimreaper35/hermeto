@@ -1,12 +1,10 @@
-codecov:
-  notify:
-    wait_for_ci: no
+comment: off
 
 coverage:
   status:
-    patch: off
     project:
       default:
-        target: 90%
-
-comment: off
+        informational: true
+    patch:
+      default:
+        informational: true

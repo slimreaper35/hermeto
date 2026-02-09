@@ -90,6 +90,16 @@ class TestTopLevelOpts:
         result = invoke_expecting_sucess(app, ["--version"])
         assert expect_version in result.output
 
+    @mock.patch(
+        "hermeto.core.resolver._package_managers",
+        {"foo": mock.Mock(), "bar": mock.Mock(), "x-baz": mock.Mock()},
+    )
+    def test_list_backends_option(self) -> None:
+        result = invoke_expecting_sucess(app, ["list-backends"])
+        lines = result.output.splitlines()
+        assert "bar, foo" in lines[0]
+        assert "x-baz" in lines[1]
+
     @pytest.mark.parametrize(
         "config_values",
         [

@@ -20,7 +20,12 @@ from hermeto.core.extras.envfile import EnvFormat, generate_envfile
 from hermeto.core.models.input import Flag, Mode, PackageInput, Request, parse_user_input
 from hermeto.core.models.output import BuildConfig
 from hermeto.core.models.sbom import Sbom, SPDXSbom, spdx_now
-from hermeto.core.resolver import inject_files_post, resolve_packages
+from hermeto.core.resolver import (
+    get_experimental_backends,
+    get_supported_backends,
+    inject_files_post,
+    resolve_packages,
+)
 from hermeto.core.rooted_path import RootedPath
 from hermeto.interface.logging import LogLevel, setup_logging
 
@@ -220,6 +225,19 @@ def _looks_like_input_file(value: str) -> bool:
 class _Input(pydantic.BaseModel, extra="forbid"):
     packages: list[PackageInput]
     flags: list[Flag] = list()
+
+
+@app.command()
+@handle_errors
+def list_backends() -> None:
+    """List supported backends."""
+    supported = get_supported_backends()
+    if supported:
+        print("Supported:", ", ".join(supported))
+
+    experimental = get_experimental_backends()
+    if experimental:
+        print("Experimental:", ", ".join(experimental))
 
 
 @app.command(help=FETCH_DEPS_HELP)

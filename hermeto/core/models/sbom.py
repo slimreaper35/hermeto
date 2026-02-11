@@ -122,6 +122,14 @@ class Component(pydantic.BaseModel):
         """
         return self.purl
 
+    @pydantic.field_validator("version")
+    @classmethod
+    def _remove_empty_version(cls, version: str | None) -> str | None:
+        if not version:
+            return None
+
+        return version
+
     @pydantic.field_validator("properties")
     @classmethod
     def _add_found_by_property(cls, properties: list[Property]) -> list[Property]:

@@ -5,6 +5,9 @@
 # (https://github.com/coreos/coreos-assembler)
 # (https://github.com/coreos/coreos-assembler/blob/c239624efd2e411b9bd3b2694e246f61f84c205e/ci/hermetic/update_artifacts_lockfile)
 
+# Modification notice:
+# Changed ruamel.yaml to PyYAML to avoid dependency on ruamel.yaml.
+
 """
 This script reads a YAML file containing a list of artifacts.
 For each artifact, it downloads the file from the specified 'download_url',
@@ -18,7 +21,7 @@ of dictionaries. Each dictionary should have at least 'download_url',
 '<hash_algorithm>:<hash_value>'.
 
 Dependencies:
-- ruamel.yaml: For reading and writing YAML files while preserving style.
+- PyYAML: For reading and writing YAML files.
 - requests: For downloading files from URLs.
 """
 
@@ -26,7 +29,7 @@ import hashlib
 from typing import Any, Dict, List, Optional
 
 import requests
-from ruamel.yaml import YAML
+import yaml
 
 
 def calculate_checksum(file_content: bytes, algorithm_name: str) -> Optional[str]:
@@ -63,18 +66,14 @@ def update_artifact_checksums(yaml_file_path: str) -> None:
     Args:
         yaml_file_path (str): The path to the input YAML file.
     """
-    yaml_parser = YAML()
-    yaml_parser.default_flow_style = False
-    yaml_parser.preserve_quotes = True  # Keep existing quotes (single/double)
-    yaml_parser.indent(mapping=2, sequence=4, offset=2)
     data: Dict[str, Any] = {}
     try:
         with open(yaml_file_path, "r", encoding="utf-8") as f:
-            data = yaml_parser.load(f)
+            data = yaml.safe_load(f)
     except FileNotFoundError:
         print(f"Error: YAML file not found at '{yaml_file_path}'")
         return
-    except Exception as e:  # ruamel.yaml can raise different exceptions
+    except yaml.YAMLError as e:
         print(f"Error parsing YAML file: {e}")
         return
 
@@ -141,8 +140,13 @@ def update_artifact_checksums(yaml_file_path: str) -> None:
 
     try:
         with open(yaml_file_path, "w", encoding="utf-8") as f:
-            # ruamel.yaml's dump method handles preserving formatting
-            yaml_parser.dump(data, f)
+            yaml.dump(
+                data,
+                f,
+                default_flow_style=False,
+                sort_keys=False,
+                indent=2,
+            )
         print(f"\nSuccessfully updated checksums in '{yaml_file_path}'.")
     except Exception as e:
         print(f"Error writing updated YAML file: {e}")

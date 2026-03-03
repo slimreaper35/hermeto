@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import ssl
+from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlparse
 
@@ -115,7 +116,7 @@ async def _async_download_binary_file(
 
 
 async def async_download_files(
-    files_to_download: dict[str, StrPath],
+    files_to_download: Mapping[str, StrPath],
     concurrency_limit: int,
     ssl_context: ssl.SSLContext | None = None,
     auth: aiohttp.BasicAuth | None = None,

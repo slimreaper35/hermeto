@@ -4,7 +4,6 @@ import os
 import re
 import tarfile
 import tempfile
-from os import PathLike
 from pathlib import Path
 from typing import Any, NamedTuple
 from urllib.parse import ParseResult, SplitResult, urlparse, urlsplit
@@ -104,7 +103,7 @@ class GitRepo(git.Repo):
 
     GitCommandWrapperType = GitCommandWrapper
 
-    def __init__(self, path: str | PathLike[str], *args: Any, **kwargs: Any) -> None:
+    def __init__(self, path: str | os.PathLike[str], *args: Any, **kwargs: Any) -> None:
         """Initialize git repository with unified error handling."""
         try:
             super().__init__(path, *args, **kwargs)
@@ -118,7 +117,7 @@ class GitRepo(git.Repo):
 
     @classmethod
     def clone_from(  # type: ignore[override]
-        cls, url: str | PathLike[str], to_path: str | PathLike[str], **kwargs: Any
+        cls, url: str | os.PathLike[str], to_path: str | os.PathLike[str], **kwargs: Any
     ) -> "GitRepo":
         """Clone repository and return GitRepo with error handling."""
         try:

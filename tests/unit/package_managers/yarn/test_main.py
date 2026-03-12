@@ -2,7 +2,6 @@
 import itertools
 import re
 from enum import Enum
-from itertools import zip_longest
 from pathlib import Path
 from unittest import mock
 
@@ -237,7 +236,9 @@ YARN_VERSIONS = [yarn_version.value for yarn_version in YarnVersions.unsupported
             yarn_path_version,
             id=f"package_manager,yarn_path-({str(pkg_mgr_version)}, {str(yarn_path_version)})",
         )
-        for pkg_mgr_version, yarn_path_version in zip_longest(YARN_VERSIONS, YARN_VERSIONS[:1])
+        for pkg_mgr_version, yarn_path_version in itertools.zip_longest(
+            YARN_VERSIONS, YARN_VERSIONS[:1]
+        )
     ],
 )
 @mock.patch("hermeto.core.package_managers.yarn.main.get_semver_from_package_manager")

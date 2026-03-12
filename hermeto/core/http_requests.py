@@ -3,7 +3,6 @@ import logging
 from typing import Any
 
 import requests
-from requests import Session
 from urllib3.util.retry import Retry
 
 log = logging.getLogger(__name__)
@@ -24,7 +23,7 @@ DEFAULT_RETRY_OPTIONS: dict[str, Any] = {
 }
 
 
-def get_requests_session(retry_options: dict | None = None) -> Session:
+def get_requests_session(retry_options: dict | None = None) -> requests.Session:
     """
     Create a requests session with retries.
 

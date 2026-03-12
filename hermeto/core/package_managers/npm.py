@@ -5,7 +5,6 @@ import fnmatch
 import functools
 import json
 import logging
-from functools import partial
 from pathlib import Path
 from typing import Any, Literal, NewType, TypedDict
 from urllib.parse import urlparse
@@ -521,7 +520,9 @@ async def _async_download_tar(files_to_download_list: list[dict[str, dict[str, A
     # through a proxy.
     auth = lambda ftd: next(iter(ftd.values()))["proxy_auth"]
     ftd = lambda ftd: {it["fetch_url"]: it["download_path"] for it in ftd.values()}
-    adf = partial(async_download_files, concurrency_limit=get_config().runtime.concurrency_limit)
+    adf = functools.partial(
+        async_download_files, concurrency_limit=get_config().runtime.concurrency_limit
+    )
 
     await asyncio.gather(*[adf(files_to_download=ftd(f), auth=auth(f)) for f in ftdl])
 

@@ -109,6 +109,7 @@ PackageManagerType = Literal[
     "gomod",
     "npm",
     "pip",
+    "pnpm",
     "rpm",
     "yarn",
     # Add experimental package managers here with x- prefix, e.g. "x-foo"
@@ -409,6 +410,12 @@ class YarnPackageInput(_PackageInputBase):
     type: Literal["yarn"]
 
 
+class PnpmPackageInput(_PackageInputBase):
+    """Accepted input for a pnpm package."""
+
+    type: Literal["pnpm"]
+
+
 PackageInput = Annotated[
     BundlerPackageInput
     | CargoPackageInput
@@ -416,6 +423,7 @@ PackageInput = Annotated[
     | GomodPackageInput
     | NpmPackageInput
     | PipPackageInput
+    | PnpmPackageInput
     | RpmPackageInput
     | YarnPackageInput,
     # https://pydantic-docs.helpmanual.io/usage/types/#discriminated-unions-aka-tagged-unions
@@ -519,6 +527,11 @@ class Request(pydantic.BaseModel):
     def pip_packages(self) -> list[PipPackageInput]:
         """Get the pip packages specified for this request."""
         return self._packages_by_type(PipPackageInput)
+
+    @property
+    def pnpm_packages(self) -> list[PnpmPackageInput]:
+        """Get the pnpm packages specified for this request."""
+        return self._packages_by_type(PnpmPackageInput)
 
     @property
     def rpm_packages(self) -> list[RpmPackageInput]:

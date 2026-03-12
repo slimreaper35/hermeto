@@ -56,6 +56,7 @@ COPY --from=builder /venv /venv
 
 # link corepack, yarn, and go to standard PATH location
 RUN ln -s /usr/local/lib/corepack/dist/corepack.js /usr/local/bin/corepack && \
+    ln -s /usr/local/lib/corepack/dist/pnpm.js /usr/local/bin/pnpm && \
     ln -s /usr/local/lib/corepack/dist/yarn.js /usr/local/bin/yarn && \
     ln -s /usr/local/go/bin/go /usr/local/bin/go && \
     ln -s /venv/bin/createrepo_c /usr/local/bin/createrepo_c && \

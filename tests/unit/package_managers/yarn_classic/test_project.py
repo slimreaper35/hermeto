@@ -5,12 +5,9 @@ import pytest
 from pyarn import lockfile  # type: ignore
 
 from hermeto.core.errors import PackageRejected
+from hermeto.core.package_managers.common import PackageJson
 from hermeto.core.package_managers.yarn_classic.main import _verify_repository
-from hermeto.core.package_managers.yarn_classic.project import (
-    PackageJson,
-    Project,
-    YarnLock,
-)
+from hermeto.core.package_managers.yarn_classic.project import Project, YarnLock
 from hermeto.core.rooted_path import RootedPath
 
 VALID_PACKAGE_JSON_FILE = """
@@ -66,8 +63,8 @@ def _setup_pnp_installs(rooted_tmp_path: RootedPath, pnp_kind: str) -> None:
 
 def test_package_json_config_file_attributes(rooted_tmp_path: RootedPath) -> None:
     path = _write_file(rooted_tmp_path, "package.json", VALID_PACKAGE_JSON_FILE)
-    package_json = PackageJson.from_file(path)
-    assert package_json.path.root == rooted_tmp_path.root
+    package_json = PackageJson.from_file(path.path)
+    assert package_json.path == rooted_tmp_path.path / "package.json"
 
 
 def test_yarnlock_config_file_attributes(rooted_tmp_path: RootedPath) -> None:
@@ -78,7 +75,7 @@ def test_yarnlock_config_file_attributes(rooted_tmp_path: RootedPath) -> None:
 
 def test_package_json_find_and_open_config_file(rooted_tmp_path: RootedPath) -> None:
     path = _write_file(rooted_tmp_path, "package.json", VALID_PACKAGE_JSON_FILE)
-    package_json = PackageJson.from_file(path)
+    package_json = PackageJson.from_file(path.path)
     assert package_json.data == json.loads(VALID_PACKAGE_JSON_FILE)
 
 
@@ -91,7 +88,7 @@ def test_yarnlock_find_and_open_config_file(rooted_tmp_path: RootedPath) -> None
 def test_package_json_from_file_bad(rooted_tmp_path: RootedPath) -> None:
     path = _write_file(rooted_tmp_path, "package.json", INVALID_JSON_FILE)
     with pytest.raises(PackageRejected):
-        PackageJson.from_file(path)
+        PackageJson.from_file(path.path)
 
 
 def test_yarnlock_from_file_empty(rooted_tmp_path: RootedPath) -> None:
@@ -109,7 +106,7 @@ def test_yarnlock_from_file_invalid(rooted_tmp_path: RootedPath) -> None:
 def test_package_json_from_file_missing(rooted_tmp_path: RootedPath) -> None:
     with pytest.raises(PackageRejected):
         path = rooted_tmp_path.join_within_root("package.json")
-        PackageJson.from_file(path)
+        PackageJson.from_file(path.path)
 
 
 def test_yarnlock_from_file_missing(rooted_tmp_path: RootedPath) -> None:

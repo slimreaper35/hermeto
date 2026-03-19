@@ -121,9 +121,6 @@ class YarnLock(_CommonConfigFile):
         return cls(path, yarn_lockfile.data, yarn_lockfile)
 
 
-ConfigFile = PackageJson | YarnLock
-
-
 @dataclass(frozen=True)
 class Project:
     """Minimally, a directory containing yarn sources and parsed package.json."""

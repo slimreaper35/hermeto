@@ -35,7 +35,7 @@ jobs:
       - name: Install pip-tools
         run: |
           pip install --upgrade pip
-          pip install --no-cache-dir uv
+          pip install --no-cache-dir uv pybuild-deps
 
         # This step uses multi-line string injection to GitHub environment [1]
         # [1] https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#multiline-strings
@@ -57,6 +57,10 @@ jobs:
             --refresh \
             --no-strip-markers \
             pyproject.toml
+          pybuild-deps compile \
+            --generate-hashes \
+            --output-file=requirements-build.txt \
+            requirements.txt
           {
             echo 'GIT_DIFF<<EOF'
             git diff -p

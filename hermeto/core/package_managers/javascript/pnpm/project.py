@@ -46,9 +46,26 @@ class PnpmLock(UserDict):
         return cls.from_file(path.joinpath("pnpm-lock.yaml"))
 
     @property
+    def root_dev_dependencies(self) -> list[str]:
+        """Return the root development dependencies from the pnpm-lock.yaml file."""
+        importers: dict[str, dict[str, Any]] = self["importers"]["."]
+        dev_dependencies = importers.get("devDependencies", {})
+        return [f"{name}@{data['version']}" for name, data in dev_dependencies.items()]
+
+    @property
+    def patched_dependencies(self) -> dict[str, dict[str, Any]]:
+        """Return the patched dependencies from the pnpm-lock.yaml file."""
+        return self.get("patchedDependencies", {})
+
+    @property
     def packages(self) -> dict[str, dict[str, Any]]:
         """Return the 'packages' key from the pnpm-lock.yaml file."""
         return self.get("packages", {})
+
+    @property
+    def snapshots(self) -> dict[str, dict[str, Any]]:
+        """Return the 'snapshots' key from the pnpm-lock.yaml file."""
+        return self.get("snapshots", {})
 
 
 @dataclass(frozen=True)
@@ -61,6 +78,14 @@ class PnpmPackage:
     version: str
     url: str
     integrity: str | None = None  # git and URL dependencies don't have an integrity field
+
+    @property
+    def tarball_name(self) -> str:
+        """Return the tarball name."""
+        if self.scope:
+            return f"{self.scope}-{self.name}-{self.version}.tgz"
+
+        return f"{self.name}-{self.version}.tgz"
 
 
 def _ensure_lockfile_version_is_supported(lockfile: PnpmLock) -> None:

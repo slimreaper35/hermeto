@@ -554,8 +554,8 @@ class TestDownload:
                     ("bar", "vcs", {}),
                 ],
                 [],
-                MissingChecksum,
-                id="vcs_local_hash_triggers_missing",
+                UnsupportedFeature,
+                id="vcs_local_hash_triggers_unsupported",
             ),
             pytest.param(
                 [
@@ -572,7 +572,7 @@ class TestDownload:
                     ("bar", "vcs", {}),
                 ],
                 ["--require-hashes"],
-                MissingChecksum,
+                UnsupportedFeature,
                 id="vcs_global_require_hashes",
             ),
             pytest.param(
@@ -590,7 +590,7 @@ class TestDownload:
                     ("bar", "vcs", {}),
                 ],
                 ["--require-hashes"],
-                MissingChecksum,
+                UnsupportedFeature,
                 id="vcs_both_global_and_local_hash",
             ),
             pytest.param(
@@ -602,8 +602,8 @@ class TestDownload:
             pytest.param(
                 [("foo", "vcs", {"hashes": ["malformed"]})],
                 [],
-                InvalidChecksum,
-                id="vcs_malformed_hash",
+                UnsupportedFeature,
+                id="vcs_malformed_hash_triggers_unsupported",
             ),
             pytest.param(
                 [("foo", "url", {"hashes": ["malformed"]})],

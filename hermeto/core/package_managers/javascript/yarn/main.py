@@ -124,6 +124,8 @@ def _resolve_yarn_project(
     """
     log.info(f"Fetching the yarn dependencies at the subpath {project.source_dir}")
 
+    project.yarn_rc["plugins"] = _get_plugin_allowlist(project.yarn_rc)
+    project.yarn_rc.write()
     version = _configure_yarn_version(project)
 
     if workspaces and version < semver.Version.parse("4.0.0"):
@@ -242,7 +244,6 @@ def _set_yarnrc_configuration(
     """
     yarn_rc = project.yarn_rc
 
-    yarn_rc["plugins"] = _get_plugin_allowlist(yarn_rc)
     yarn_rc["checksumBehavior"] = "throw"
     yarn_rc["enableImmutableInstalls"] = True
     yarn_rc["pnpMode"] = "strict"

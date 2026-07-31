@@ -21,7 +21,7 @@ from hermeto.core.package_managers.javascript.yarn.main import (
     _verify_corepack_yarn_version,
     _verify_yarnrc_paths,
 )
-from hermeto.core.package_managers.javascript.yarn.project import PackageJson, Plugin, YarnRc
+from hermeto.core.package_managers.javascript.yarn.project import PackageJson, YarnRc
 from hermeto.core.package_managers.javascript.yarn.resolver import Package
 from hermeto.core.package_managers.javascript.yarn.utils import VersionsRange
 from hermeto.core.rooted_path import RootedPath
@@ -231,29 +231,17 @@ def test_yarn_unsupported_version_fail(
 
 
 @pytest.mark.parametrize(
-    "yarn_rc_content, expected_plugins, yarn_version",
+    "yarn_rc_content, yarn_version",
     [
-        pytest.param("", [], "3.0.0", id="empty_yarn_rc"),
-        pytest.param(
-            SAMPLE_PLUGINS,
-            [
-                {
-                    "path": ".yarn/plugins/@yarnpkg/plugin-exec.cjs",
-                    "spec": "@yarnpkg/plugin-exec",
-                },
-            ],
-            "3.0.0",
-            id="yarn_rc_with_default_plugins",
-        ),
-        pytest.param("", [], "4.0.0", id="yarn_v4"),
-        pytest.param("", [], "4.0.0-rc1", id="yarn_v4_rc1"),
+        pytest.param("", "3.0.0", id="empty_yarn_rc"),
+        pytest.param("", "4.0.0", id="yarn_v4"),
+        pytest.param("", "4.0.0-rc1", id="yarn_v4_rc1"),
     ],
 )
 @mock.patch("hermeto.core.package_managers.javascript.yarn.project.YarnRc.write")
 def test_set_yarnrc_configuration(
     mock_write: mock.Mock,
     yarn_rc_content: str,
-    expected_plugins: list[Plugin],
     yarn_version: semver.Version,
     rooted_tmp_path: RootedPath,
 ) -> None:
@@ -281,7 +269,6 @@ def test_set_yarnrc_configuration(
         "ignorePath": True,
         "unsafeHttpWhitelist": [],
         "pnpMode": "strict",
-        "plugins": expected_plugins,
     }
 
     if yarn_version in VersionsRange("4.0.0-rc1", "5.0.0"):
@@ -314,13 +301,20 @@ def test_verify_yarnrc_paths_fail(
         _verify_yarnrc_paths(project)
 
 
+@mock.patch("hermeto.core.package_managers.javascript.yarn.project.YarnRc.write")
+@mock.patch(
+    "hermeto.core.package_managers.javascript.yarn.main._get_plugin_allowlist", return_value=[]
+)
 @mock.patch("hermeto.core.package_managers.javascript.yarn.main._configure_yarn_version")
 def test_workspace_focus_rejected_for_yarn_v3(
-    mock_configure_version: mock.Mock, rooted_tmp_path: RootedPath
+    mock_configure_version: mock.Mock,
+    mock_allowlist: mock.Mock,
+    mock_write: mock.Mock,
+    rooted_tmp_path: RootedPath,
 ) -> None:
     """Workspace focus is rejected when the project uses Yarn v3."""
     mock_configure_version.return_value = semver.Version.parse("3.6.1")
-    project = mock.Mock(source_dir=rooted_tmp_path)
+    project = mock.Mock(source_dir=rooted_tmp_path, yarn_rc=mock.MagicMock())
 
     with pytest.raises(PackageRejected):
         _resolve_yarn_project(project, rooted_tmp_path, workspaces=["app"])

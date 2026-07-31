@@ -527,15 +527,18 @@ build. If there are unknown plugins, either disable them or fail the build.
 - Cons: Requires tediously maintaining a very precise allowlist and personally verifying the safety
   of each addition
 
-**The approach taken: Have a default list and reject everything else** — A mixture of Option 1 and                                        
-Option 3. Hermeto maintains an                                                                                                            
+**The approach taken: Have a default list and reject everything else** — A mixture of Option 1 and
+Option 3. Hermeto maintains an
 [allowlist](https://github.com/hermetoproject/hermeto/blob/4fc76df98d71df67c740bb1c85029d39124626fb/hermeto/core/package_managers/javascript/yarn/main.py)
-of official plugins that add new protocols but do not implement the `fetchPackageInfo` hook (which 
-would allow arbitrary code execution). Currently, only the exec plugin is on this list — it is kept 
-so that `yarn info` can recognize exec locators, which are then rejected. All other plugins are                                           
-silently removed from `.yarnrc.yml` before processing. If a removed plugin's protocol appears in 
-the lockfile, the build fails with an unsupported locator error. Note that starting from v4, the 
-official plugins are enabled by default and can't be disabled. Since they're not present in the 
+of official plugins that add new protocols but do not implement the `fetchPackageInfo` hook (which
+would allow arbitrary code execution). Currently, only the exec plugin is on this list — it is kept
+so that `yarn info` can recognize exec locators, which are then rejected. All other plugins are
+stripped from `.yarnrc.yml` as the very first step of processing, before any `yarn` command
+(including version verification) runs. Yarn Berry loads plugins at startup for every command,
+so stripping must happen before version detection to prevent arbitrary code execution. If a removed
+plugin's protocol appears in the lockfile, the build fails with an unsupported locator error.
+Note that starting from v4, the official plugins are enabled by default and can't be disabled.
+Since they're not present in the
 [.yarnrc.yml][yarnrc-ref] file anymore, this function has no effect on v4 projects.
 
 #### Dealing with User Configuration
@@ -619,11 +622,12 @@ Optional:
 
 **Summary: Resolving a single Yarnberry project**
 
-1. Make sure we will use the right version of Yarnberry to process the project
-2. If workspace focus is requested, validate that the project uses Yarn v4+
-3. Check and reject if the project uses zero-installs
-4. Prepare the configuration options relevant for prefetch (including proxy settings if configured)
-5. Disable plugins
+1. Strip untrusted plugins from `.yarnrc.yml` (must happen before any `yarn` command, since Yarn
+   Berry loads plugins at startup)
+2. Make sure we will use the right version of Yarnberry to process the project
+3. If workspace focus is requested, validate that the project uses Yarn v4+
+4. Check and reject if the project uses zero-installs
+5. Prepare the configuration options relevant for prefetch (including proxy settings if configured)
 6. Run `yarn info …` to get the necessary data (or per-workspace info queries if using workspace
    focus)
 7. Validate that we can parse needed locator in the output

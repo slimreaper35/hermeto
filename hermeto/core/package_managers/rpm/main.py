@@ -313,7 +313,7 @@ def _resolve_rpm_project(
             )
 
         package_dir = output_dir.join_within_root(DEFAULT_PACKAGE_DIR)
-        metadata = _download(redhat_rpms_lock, package_dir.path, ssl_options, binary_filter)
+        metadata = _download(redhat_rpms_lock, package_dir, ssl_options, binary_filter)
         _verify_downloaded(metadata)
 
         lockfile_relative_path = source_dir.subpath_from_root / DEFAULT_LOCKFILE_NAME
@@ -322,7 +322,7 @@ def _resolve_rpm_project(
 
 def _download(
     lockfile: RedhatRpmsLock,
-    output_dir: Path,
+    output_dir: RootedPath,
     ssl_options: SSLOptions | None = None,
     binary_filter: RpmBinaryFilters | None = None,
 ) -> dict[Path, Any]:
@@ -354,7 +354,7 @@ def _download(
                 else:
                     repoid = lockfile.generated_source_repoid
 
-            dest = output_dir.joinpath(arch.arch, repoid, Path(pkg.url).name)
+            dest = output_dir.join_within_root(arch.arch, repoid, Path(pkg.url).name).path
             files[pkg.url] = str(dest)
             metadata[dest] = {
                 "repoid": pkg.repoid,

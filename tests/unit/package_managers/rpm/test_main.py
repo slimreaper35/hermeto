@@ -13,6 +13,7 @@ from hermeto.core.errors import (
     ChecksumVerificationFailed,
     InvalidLockfileFormat,
     LockfileNotFound,
+    PathOutsideRoot,
 )
 from hermeto.core.models.input import SSLOptions
 from hermeto.core.models.sbom import Component, Property
@@ -167,6 +168,32 @@ def test_resolve_rpm_project_accepts_empty_arch(
     components = _resolve_rpm_project(rooted_tmp_path, rooted_tmp_path)
     assert len(components) == expected_components
     assert mock_async_download_files.call_count == len(lockfile_data["arches"])
+
+
+@pytest.mark.parametrize(
+    "arch, repoid",
+    [
+        pytest.param("../../../../etc", "repo", id="arch_traversal"),
+        pytest.param("x86_64", "../../../../etc", id="repoid_traversal"),
+    ],
+)
+def test_resolve_rpm_project_rejects_path_traversal(
+    rooted_tmp_path: RootedPath, arch: str, repoid: str
+) -> None:
+    lockfile_data = {
+        "lockfileVendor": "redhat",
+        "lockfileVersion": 1,
+        "arches": [
+            {
+                "arch": arch,
+                "packages": [{"url": "http://example.com/evil.rpm", "repoid": repoid}],
+            },
+        ],
+    }
+    with open(rooted_tmp_path.join_within_root("rpms.lock.yaml"), "w") as f:
+        yaml.safe_dump(lockfile_data, f)
+    with pytest.raises(PathOutsideRoot):
+        _resolve_rpm_project(rooted_tmp_path, rooted_tmp_path)
 
 
 @pytest.mark.parametrize(

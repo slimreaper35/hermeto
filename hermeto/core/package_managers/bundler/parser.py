@@ -35,20 +35,27 @@ def _ensure_bundler_files_exist(package_dir: RootedPath) -> None:
         )
 
 
+def _run_lockfile_parser(package_dir: Path) -> dict[str, Any]:
+    """
+    Run the lockfile parser script and return the parsed output as JSON.
+    """
+    scripts_dir = Path(__file__).parent / "scripts"
+    lockfile_parser = scripts_dir / "lockfile_parser.rb"
+
+    try:
+        output = run_cmd(cmd=[str(lockfile_parser)], params={"cwd": package_dir})
+    except subprocess.CalledProcessError as e:
+        raise PackageManagerError("Failed to parse Gemfile.lock") from e
+
+    return json.loads(output)
+
+
 def parse_lockfile(
     package_dir: RootedPath, binary_filters: BundlerBinaryFilters | None = None
 ) -> ParseResult:
     """Parse a Gemfile.lock file and return a list of dependencies."""
     _ensure_bundler_files_exist(package_dir)
-
-    scripts_dir = Path(__file__).parent / "scripts"
-    lockfile_parser = scripts_dir / "lockfile_parser.rb"
-    try:
-        output = run_cmd(cmd=[str(lockfile_parser)], params={"cwd": package_dir.path})
-    except subprocess.CalledProcessError as e:
-        raise PackageManagerError("Failed to parse Gemfile.lock") from e
-
-    json_output = json.loads(output)
+    json_output = _run_lockfile_parser(package_dir.path)
 
     bundler_version: str = json_output["bundler_version"]
     log.info("Package %s is bundled with version %s", package_dir.path.name, bundler_version)

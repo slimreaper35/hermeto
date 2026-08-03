@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-only
-import json
 import re
 import subprocess
 from collections.abc import Iterable
 from copy import deepcopy
+from pathlib import Path
 from typing import Any
 from unittest import mock
 
@@ -19,7 +19,11 @@ from hermeto.core.package_managers.bundler.gem_models import (
     GitDependency,
     PathDependency,
 )
-from hermeto.core.package_managers.bundler.parser import BundlerDependency, parse_lockfile
+from hermeto.core.package_managers.bundler.parser import (
+    BundlerDependency,
+    _run_lockfile_parser,
+    parse_lockfile,
+)
 from hermeto.core.rooted_path import RootedPath
 from tests.common_utils import GIT_REF
 
@@ -52,23 +56,20 @@ def test_parse_lockfile_without_bundler_files(rooted_tmp_path: RootedPath) -> No
         parse_lockfile(rooted_tmp_path)
 
 
-@mock.patch("hermeto.core.package_managers.bundler.parser._ensure_bundler_files_exist")
 @mock.patch("hermeto.core.package_managers.bundler.parser.run_cmd")
-def test_parse_lockfile_os_error(
+def test_run_lockfile_parser_raises_exception_on_os_error(
     mock_run_cmd: mock.MagicMock,
-    mock_ensure_bundler_files_exist: mock.MagicMock,
-    rooted_tmp_path: RootedPath,
+    tmp_path: Path,
 ) -> None:
     mock_run_cmd.side_effect = subprocess.CalledProcessError(returncode=1, cmd="cmd")
-
     with pytest.raises(PackageManagerError) as exc_info:
-        parse_lockfile(rooted_tmp_path)
+        _run_lockfile_parser(tmp_path)
 
     assert "Failed to parse Gemfile.lock" in exc_info.value.friendly_msg()
 
 
 @mock.patch("hermeto.core.package_managers.bundler.parser._ensure_bundler_files_exist")
-@mock.patch("hermeto.core.package_managers.bundler.parser.run_cmd")
+@mock.patch("hermeto.core.package_managers.bundler.parser._run_lockfile_parser")
 @pytest.mark.parametrize(
     "error, expected_error_msg",
     [
@@ -79,7 +80,7 @@ def test_parse_lockfile_os_error(
     ],
 )
 def test_parse_lockfile_invalid_format(
-    mock_run_cmd: mock.MagicMock,
+    mock_run_lockfile_parser: mock.MagicMock,
     mock_ensure_bundler_files_exist: mock.MagicMock,
     error: str,
     expected_error_msg: str,
@@ -118,7 +119,7 @@ def test_parse_lockfile_invalid_format(
             }
         )
 
-    mock_run_cmd.return_value = json.dumps(sample_parser_output)
+    mock_run_lockfile_parser.return_value = sample_parser_output
     with pytest.raises((pydantic.ValidationError, UnexpectedFormat)) as exc_info:
         parse_lockfile(rooted_tmp_path)
 
@@ -126,9 +127,9 @@ def test_parse_lockfile_invalid_format(
 
 
 @mock.patch("hermeto.core.package_managers.bundler.parser._ensure_bundler_files_exist")
-@mock.patch("hermeto.core.package_managers.bundler.parser.run_cmd")
+@mock.patch("hermeto.core.package_managers.bundler.parser._run_lockfile_parser")
 def test_parse_gemlock(
-    mock_run_cmd: mock.MagicMock,
+    mock_run_lockfile_parser: mock.MagicMock,
     mock_ensure_bundler_files_exist: mock.MagicMock,
     sample_parser_output: dict[str, Any],
     rooted_tmp_path: RootedPath,
@@ -155,7 +156,7 @@ def test_parse_gemlock(
         },
     ]
 
-    mock_run_cmd.return_value = json.dumps(sample_parser_output)
+    mock_run_lockfile_parser.return_value = sample_parser_output
     result = parse_lockfile(rooted_tmp_path)
 
     expected_deps = [
@@ -179,14 +180,14 @@ def test_parse_gemlock(
 
 
 @mock.patch("hermeto.core.package_managers.bundler.parser._ensure_bundler_files_exist")
-@mock.patch("hermeto.core.package_managers.bundler.parser.run_cmd")
+@mock.patch("hermeto.core.package_managers.bundler.parser._run_lockfile_parser")
 def test_parse_gemlock_empty(
-    mock_run_cmd: mock.MagicMock,
+    mock_run_lockfile_parser: mock.MagicMock,
     mock_ensure_bundler_files_exist: mock.MagicMock,
     rooted_tmp_path: RootedPath,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    mock_run_cmd.return_value = '{"bundler_version": "2.5.10", "dependencies": []}'
+    mock_run_lockfile_parser.return_value = {"bundler_version": "2.5.10", "dependencies": []}
     result = parse_lockfile(rooted_tmp_path)
 
     assert f"Package {rooted_tmp_path.path.name} is bundled with version 2.5.10" in caplog.messages
@@ -285,9 +286,9 @@ def test_purls(rooted_tmp_path_repo: RootedPath) -> None:
 
 
 @mock.patch("hermeto.core.package_managers.bundler.parser._ensure_bundler_files_exist")
-@mock.patch("hermeto.core.package_managers.bundler.parser.run_cmd")
+@mock.patch("hermeto.core.package_managers.bundler.parser._run_lockfile_parser")
 def test_parse_gemlock_detects_binaries_and_adds_to_parse_result_when_allowed_to(
-    mock_run_cmd: mock.MagicMock,
+    mock_run_lockfile_parser: mock.MagicMock,
     mock_ensure_bundler_files_exist: mock.MagicMock,
     sample_parser_output: dict[str, Any],
     rooted_tmp_path: RootedPath,
@@ -303,7 +304,7 @@ def test_parse_gemlock_detects_binaries_and_adds_to_parse_result_when_allowed_to
         },
     ]
 
-    mock_run_cmd.return_value = json.dumps(sample_parser_output)
+    mock_run_lockfile_parser.return_value = sample_parser_output
     result = parse_lockfile(
         rooted_tmp_path, binary_filters=BundlerBinaryFilters.with_allow_binary_behavior()
     )
@@ -323,9 +324,9 @@ def test_parse_gemlock_detects_binaries_and_adds_to_parse_result_when_allowed_to
 
 
 @mock.patch("hermeto.core.package_managers.bundler.parser._ensure_bundler_files_exist")
-@mock.patch("hermeto.core.package_managers.bundler.parser.run_cmd")
+@mock.patch("hermeto.core.package_managers.bundler.parser._run_lockfile_parser")
 def test_parse_gemlock_detects_binaries_and_skips_then_when_instructed_to_skip(
-    mock_run_cmd: mock.MagicMock,
+    mock_run_lockfile_parser: mock.MagicMock,
     mock_ensure_bundler_files_exist: mock.MagicMock,
     sample_parser_output: dict[str, Any],
     rooted_tmp_path: RootedPath,
@@ -341,7 +342,7 @@ def test_parse_gemlock_detects_binaries_and_skips_then_when_instructed_to_skip(
         },
     ]
 
-    mock_run_cmd.return_value = json.dumps(sample_parser_output)
+    mock_run_lockfile_parser.return_value = sample_parser_output
     result = parse_lockfile(rooted_tmp_path)
 
     expected_deps: list = []  # mypy demanded this annotation and is content with it.

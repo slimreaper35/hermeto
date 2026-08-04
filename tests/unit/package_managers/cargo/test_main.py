@@ -179,6 +179,91 @@ def test_cargo_package_purl_generation(pkg: dict[str, Any], expected_purl: str) 
             ).lstrip(),
             id="multiple_registries_with_safe_and_unsafe_fields",
         ),
+        pytest.param(
+            """
+            [registries.my-registry]
+            index =     "https://my-intranet:8080/git/index"
+            token =     "secret-token"
+            credential-provider = ["cargo:token"]
+            dangerous-field = "should-be-removed"
+
+            [registries.other-registry]
+            index = "https://other.example.com/index"
+            custom-field = "should-be-removed"
+
+            [build]
+            jobs = 4
+            """,
+            textwrap.dedent(
+                """
+                [registries]
+                [registries.my-registry]
+                index = "https://my-intranet:8080/git/index"
+                token = "secret-token"
+                credential-provider = ["cargo:token"]
+
+                [registries.other-registry]
+                index = "https://other.example.com/index"
+                """
+            ).lstrip(),
+            id="multiple_registries_with_safe_and_unsafe_fields_and_a_safe_list_of_providers",
+        ),
+        pytest.param(
+            """
+            [registries.my-registry]
+            index =     "https://my-intranet:8080/git/index"
+            token =     "secret-token"
+            credential-provider = ["./dangerousexploit.sh"]
+            dangerous-field = "should-be-removed"
+
+            [registries.other-registry]
+            index = "https://other.example.com/index"
+            custom-field = "should-be-removed"
+
+            [build]
+            jobs = 4
+            """,
+            textwrap.dedent(
+                """
+                [registries]
+                [registries.my-registry]
+                index = "https://my-intranet:8080/git/index"
+                token = "secret-token"
+
+                [registries.other-registry]
+                index = "https://other.example.com/index"
+                """
+            ).lstrip(),
+            id="multiple_registries_with_safe_and_unsafe_fields_and_an_unsafe_list_of_providers",
+        ),
+        pytest.param(
+            """
+            [registries.my-registry]
+            index =     "https://my-intranet:8080/git/index"
+            token =     "secret-token"
+            credential-provider = "./dangerousexploit.sh"
+            dangerous-field = "should-be-removed"
+
+            [registries.other-registry]
+            index = "https://other.example.com/index"
+            custom-field = "should-be-removed"
+
+            [build]
+            jobs = 4
+            """,
+            textwrap.dedent(
+                """
+                [registries]
+                [registries.my-registry]
+                index = "https://my-intranet:8080/git/index"
+                token = "secret-token"
+
+                [registries.other-registry]
+                index = "https://other.example.com/index"
+                """
+            ).lstrip(),
+            id="multiple_registries_with_safe_and_unsafe_fields_an_unsafe_provider",
+        ),
     ],
 )
 def test_cargo_config_with_correctly_defined_registries(

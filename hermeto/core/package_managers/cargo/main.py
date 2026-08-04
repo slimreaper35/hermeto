@@ -248,6 +248,7 @@ def _fetch_dependencies(package_dir: RootedPath, request: Request) -> CargoVendo
     with (
         _sanitized_cargo_config_file(package_dir),
         _inject_proxy_configuration_into_config_if_needed(package_dir),
+        _hide_original_cargo_config_from_cargo(package_dir),
     ):
         # Prevent Cargo from invoking rustc
         env = {"CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS": "allow"}
@@ -355,6 +356,50 @@ def _inject_proxy_configuration_into_config_if_needed(
 
 
 @contextmanager
+def _hide_original_cargo_config_from_cargo(package_dir: RootedPath) -> Generator[None, None, None]:
+    # From https://doc.rust-lang.org/cargo/reference/config.html#hierarchical-structure :
+    #
+    #   Cargo allows local configuration for a particular package as well as
+    #   global configuration. It looks for configuration files in the current
+    #   directory and all parent directories.
+    #
+    # and
+    #
+    #   If a key is specified in multiple config files, the values will get
+    #   merged together.
+    #
+    # For Hermeto this means that cargo will first consult the sanitized
+    # version in <project_dir>/<temporary_source_copy>/.cargo/config.toml, then
+    # it will traverse the directory structure up, find the original,
+    # unsanitized, .cargo/config.toml there and then will dutifully merge any
+    # missing values from it. This was observed with "credential-provider" key
+    # being removed by sanitizer only to reappear intact during a test run.
+    # Thus it is necessary to temporarily hide the original config and then to
+    # restore it back.
+    # Furthermore, all configs on the way up the directory tree must be hidden
+    # as well since in the case of, for example, Python Rust dependency such
+    # config could be located further up the directory structure.
+
+    concealed_identities = []
+    # package_dir is a temporary directory containing a modifiable copy of
+    # sources, it's parent is the source directory (the one with the original
+    # intact package-level cargo config).
+    for parent_dir in package_dir.path.parents:
+        concealment_candidates = parent_dir / ".cargo/config", parent_dir / ".cargo/config.toml"
+        for c_candidate in concealment_candidates:
+            if c_candidate.exists():
+                new_identity = c_candidate.with_suffix(f"{c_candidate.suffix}.back")
+                concealed_identities.append(new_identity)
+                os.rename(c_candidate, new_identity)
+    try:
+        yield
+    finally:
+        for new_identity in concealed_identities:
+            original_identity = new_identity.with_suffix("")
+            os.rename(new_identity, original_identity)
+
+
+@contextmanager
 def _sanitized_cargo_config_file(package_dir: RootedPath) -> Generator[None, None, None]:
     """Replace Cargo config file to keep only alternate registry settings.
 
@@ -444,12 +489,34 @@ def _sanitize_cargo_config(config_content: str) -> str:
     for registry_name, registry_config in registries.items():
         if not isinstance(registry_config, dict):
             continue
-        filtered_fields = {
-            field: registry_config[field].strip()
-            for field in registry_config
-            if field in allowed_fields
-        }
+        filtered_fields = {}
+        for field in registry_config:
+            if field in allowed_fields:
+                val = registry_config[field]
+                val = val.strip() if isinstance(val, str) else val
+                filtered_fields[field] = val
         if filtered_fields:
+            if "credential-provider" in filtered_fields:
+                cprov = filtered_fields["credential-provider"]
+                # cargo requires cargo:token for authentication, everything else must be
+                # scrubbed since it could end up being an arbitrary executable.
+                match cprov:
+                    case str():
+                        if cprov != "cargo:token":
+                            del filtered_fields["credential-provider"]
+                        else:
+                            pass
+                    case list():
+                        safe_providers = ["cargo:token"] if "cargo:token" in cprov else []
+                        if safe_providers:
+                            filtered_fields["credential-provider"] = safe_providers
+                        else:
+                            del filtered_fields["credential-provider"]
+                    case _:
+                        # Should be unreachable in practice.
+                        raise PackageRejected(
+                            f"Unexpected credential-provider type: {type(cprov)} ({cprov})"
+                        )
             filtered_registries[registry_name] = filtered_fields
 
     if filtered_registries:

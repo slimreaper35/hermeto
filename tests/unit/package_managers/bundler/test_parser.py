@@ -56,6 +56,32 @@ def test_parse_lockfile_without_bundler_files(rooted_tmp_path: RootedPath) -> No
         parse_lockfile(rooted_tmp_path)
 
 
+@mock.patch("subprocess.run")
+def test_run_lockfile_parser_hides_bundle_directory(
+    mock_subprocess: mock.MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("PATH", "/opt/homebrew/bin")
+    monkeypatch.setenv("BUNDLE_APP_CONFIG", ".blunder")
+
+    bundle_dir = tmp_path / ".bundle"
+    bundle_dir.mkdir()
+    bundle_config = bundle_dir / "config"
+    bundle_config.write_text("BUNDLE_FOO: bar\n")
+
+    def _assert_bundle_is_hidden(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        assert not bundle_dir.exists()
+        assert kwargs["env"] == {"PATH": "/opt/homebrew/bin"}
+        return subprocess.CompletedProcess(args=[], returncode=0, stdout="{}", stderr=None)
+
+    mock_subprocess.side_effect = _assert_bundle_is_hidden
+    _run_lockfile_parser(tmp_path)
+
+    assert bundle_dir.is_dir()
+    assert bundle_config.read_text() == "BUNDLE_FOO: bar\n"
+
+
 @mock.patch("hermeto.core.package_managers.bundler.parser.run_cmd")
 def test_run_lockfile_parser_raises_exception_on_os_error(
     mock_run_cmd: mock.MagicMock,

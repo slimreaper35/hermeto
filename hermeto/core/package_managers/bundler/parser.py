@@ -1,7 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-only
 import json
 import logging
+import os
 import subprocess
+import tempfile
+from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +39,25 @@ def _ensure_bundler_files_exist(package_dir: RootedPath) -> None:
         )
 
 
+@contextmanager
+def _with_hidden_bundle_directory(package_dir: Path) -> Generator[None, None, None]:
+    """
+    Temporarily rename the .bundle directory to prevent Bundler from loading plugins.
+    """
+    bundle_dir = package_dir / ".bundle"
+    if not bundle_dir.exists():
+        yield
+        return
+
+    hidden_dir = Path(tempfile.mkdtemp(prefix=".hermeto", dir=package_dir))
+
+    bundle_dir.rename(hidden_dir)
+    try:
+        yield
+    finally:
+        hidden_dir.rename(bundle_dir)
+
+
 def _run_lockfile_parser(package_dir: Path) -> dict[str, Any]:
     """
     Run the lockfile parser script and return the parsed output as JSON.
@@ -42,10 +65,13 @@ def _run_lockfile_parser(package_dir: Path) -> dict[str, Any]:
     scripts_dir = Path(__file__).parent / "scripts"
     lockfile_parser = scripts_dir / "lockfile_parser.rb"
 
-    try:
-        output = run_cmd(cmd=[str(lockfile_parser)], params={"cwd": package_dir})
-    except subprocess.CalledProcessError as e:
-        raise PackageManagerError("Failed to parse Gemfile.lock") from e
+    # Ensure that no Bundler environment variables can affect the parser execution.
+    env = {"PATH": os.environ.get("PATH")}
+    with _with_hidden_bundle_directory(package_dir):
+        try:
+            output = run_cmd(cmd=[str(lockfile_parser)], params={"cwd": package_dir, "env": env})
+        except subprocess.CalledProcessError as e:
+            raise PackageManagerError("Failed to parse Gemfile.lock") from e
 
     return json.loads(output)
 

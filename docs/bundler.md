@@ -201,6 +201,10 @@ podman build . \
 - reporting development dependencies
 - plugins
 
+> [!WARNING]
+> Hermeto ignores Bundler plugins. Prefetching may fail if the project depends
+> on plugin behavior. Try to avoid using Bundler plugins with Hermeto.
+
 [^1] `BUNDLE_DEPLOYMENT` enforces [deployment mode][] which is essentially
 vendoring your application and its dependencies. In other words, deployment will
 install your application to a local `vendor/bundle` directory instead of using

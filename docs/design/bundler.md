@@ -140,8 +140,9 @@ dependencies that are already within the root directory of the project.
 
 #### Plugins
 Installing a plugin, even when on a folder that is a Bundler project, doesn't seem to affect the `Gemfile.lock`. The
-plugin seems to be installed by default in the `$PWD/.bundle/`. The `Gemfile.lock` does have a section for plugins,
-though, so further investigation would be needed. This initial investigation was done with the plugins listed under
+plugin seems to be installed by default in the `$PWD/.bundle/`. The `Gemfile.lock` does have a section for plugins
+(`PLUGIN SOURCE`), and Bundler will load and execute plugin code from `.bundle/plugin` when that section is present.
+This initial investigation was done with the plugins listed under
 [Known Plugins](https://bundler.io/guides/plugins.html).
 
 *Don't confuse Bundler plugins with [RubyGems plugins](https://guides.rubygems.org/plugins/). The latter are meant to
@@ -330,11 +331,11 @@ identical behaviour as with our pip backend.
 
 #### Plugins
 Bundler has support for using [plugins](https://bundler.io/guides/bundler_plugins.html), which allows users to extend
-Bundler's functionality in any way that they seem fit. Since this can open the possibility for security issues, plugins
-will not be supported by Hermeto.
+Bundler's functionality in any way that they see fit. Plugins are not supported by Hermeto because they can execute
+arbitrary Ruby code during prefetch.
 
-Since we're not proposing the direct usage of Bundler to fetch the dependencies, no other actions are needed in the
-prefetch phase, existing plugin definitions will be ignored.
+Hermeto ignores local Bundler plugins and configuration while parsing `Gemfile.lock`. Prefetch may therefore fail for
+projects that rely on plugin behavior (for example custom sources). Do not use Bundler plugins with Hermeto.
 
 #### Checksum verification
 Since checksums in the `Gemfile.lock` is still a feature in development (see [checksums](#dependency-checksums)), we

@@ -1,5 +1,12 @@
 ARG HERMETO_BASE_IMAGE
 FROM $HERMETO_BASE_IMAGE
+
 COPY CA.crt /etc/pki/ca-trust/source/anchors/test-ca.crt
 ENV REQUESTS_CA_BUNDLE=/etc/pki/tls/certs/ca-bundle.crt
+
+# Run explicitly as root to update the CA trust store.
+USER 0
 RUN update-ca-trust
+
+# Switch to the UID from the main Dockerfile.
+USER 1001

@@ -269,6 +269,7 @@ class ContainerImage:
         podman_flags = [] if podman_flags is None else list(podman_flags)
         podman_flags.extend(["-v", f"{tmp_path}:{tmp_path}:z"])
 
+        podman_flags.extend(["--userns=keep-id"])
         for src, dest in mounts:
             podman_flags.extend(["-v", f"{src}:{dest}:z"])
         if net:
@@ -300,7 +301,7 @@ class HermetoImage(ContainerImage):
                 return super().run_cmd_on_image(
                     cmd,
                     tmp_path,
-                    [*mounts, (netrc_path, "/root/.netrc")],
+                    [*mounts, (netrc_path, "/home/hermelean/.netrc")],
                     net,
                     entrypoint,
                     podman_flags,
